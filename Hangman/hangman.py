@@ -1,5 +1,4 @@
 import json
-import os
 import string
 import discord
 from discord.ext import commands
@@ -131,7 +130,10 @@ async def on_message(message: discord.Message):
 
 
 def main():
-    bot.run(os.environ["DISCORD_TOKEN"])
+    # Run the bot
+    with open("token.txt") as file:
+        token = file.readline().strip()
+        bot.run(token)
 
 
 if __name__ == "__main__":
