@@ -1,3 +1,2 @@
-json~=3.13.1
 discord.py~=2.4.0
 random-word~=1.0.13
