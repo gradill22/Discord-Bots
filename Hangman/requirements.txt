@@ -1,0 +1,3 @@
+json
+discord.py
+random_word
