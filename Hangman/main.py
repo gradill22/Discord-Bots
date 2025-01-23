@@ -1,5 +1,5 @@
-import json
 import os
+import json
 import string
 import discord
 from discord.ext import commands
@@ -97,7 +97,8 @@ async def hangman(interaction: discord.Interaction):
 
     game = games.get((channel.id, user.id), None)
     if game and game["word"]["word"] == word["word"]:
-        new_message = await interaction.followup.send(f"The word of the day hasn't updated yet. Try again later.")
+        new_message = await interaction.followup.send(f"{user.mention}\nThe word of the day hasn't updated yet. Try "
+                                                      f"again later.")
         return await new_message.delete(delay=5)
 
     lives = 5
