@@ -26,29 +26,30 @@ async def on_ready():
 
 
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
-@app_commands.describe(other_players="[Optional] Other players you'd like to play with "
-                                     "(only works in server text channels)")
-async def hangman(interaction: discord.Interaction, *other_players):
+@app_commands.describe(other_player="[Optional] An additional player you can play Hangman with!")
+async def hangman(interaction: discord.Interaction, other_player: discord.Member = None):
     await interaction.response.defer()
 
-    users = [interaction.message.author] + [player.user for player in other_players
-                                            if type(player) is discord.User.mention]
+    channel = interaction.channel or interaction.user.dm_channel
+    users = [interaction.user]
+    if other_player is not None and interaction.channel is not None:
+        users.append(other_player)
+
     game_players = []
+    player_users = [player.user for player in PLAYERS]
     for user in users:
-        if user not in PLAYERS:
+        if user not in player_users:
             new_player = Player(user)
             PLAYERS.append(new_player)
             game_players.append(new_player)
             continue
-        for player in PLAYERS:
-            if user == player:
-                game_players.append(player)
-                break
 
-    channel = interaction.channel
+        player = PLAYERS[player_users.index(user)]
+        game_players.append(player)
 
     new_game = Hangman(interaction, channel=channel, users=game_players)
     GAMES.append(new_game)
+
     return await new_game.start_game()
 
 
@@ -60,12 +61,24 @@ async def on_message(message: discord.Message):
     # Check if this message is a reply to a game message
     if message.reference and message.reference.cached_message:
         original_message = message.reference.cached_message
+        if original_message.author != bot.user:
+            return
         for game in GAMES:
-            if game.is_game(original_message):
-                return await game.push_guess(original_message)
+            if game.is_game(message):
+                return await game.push_guess(message)
+
+        response = await message.reply(content=f"Sorry {message.author.mention}, but I couldn't find an active game of "
+                                               f"yours. Try doing `/hangman` in your server's text channel or in a "
+                                               f"private DM with me!")
+        if message.channel.guild:
+            await message.delete()
+            return await response.delete(delay=10)
 
 
 def main():
+    with open("token.txt", "r") as file:
+        os.environ["DISCORD_TOKEN"] = file.readline()
+
     bot.run(os.environ["DISCORD_TOKEN"])
 
 
