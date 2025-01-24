@@ -76,9 +76,6 @@ async def on_message(message: discord.Message):
 
 
 def main():
-    with open("token.txt", "r") as file:
-        os.environ["DISCORD_TOKEN"] = file.readline()
-
     bot.run(os.environ["DISCORD_TOKEN"])
 
 
