@@ -83,6 +83,13 @@ class Hangman:
 
         return "\n".join([f"Definitions:"] + [f"{i+1}) {format_definition(d)}" for i, d in enumerate(self.definitions)])
 
+    async def start_game(self):
+        content = [self.mentions, self.title + "\n", self.progress + "\n",
+                   " ".join([self.lives_emoji] * self.lives),
+                   "\nGuess a letter by replying to this message!"]
+
+        return await self.game_message.edit_original_response(content="\n".join(content))
+
     async def update_progress(self, guess: str):
         if len(guess) == 1:
             self.guessed_letters.append(guess)
@@ -111,7 +118,7 @@ class Hangman:
         if len(self.guessed_words) == 0:
             content.pop(-2)
 
-        return self.game_message.edit_original_response(content="\n".join(content))
+        return await self.game_message.edit_original_response(content="\n".join(content))
 
     async def win(self):
         word = self.word.title()

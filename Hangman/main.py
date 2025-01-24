@@ -28,7 +28,7 @@ async def on_ready():
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
 @app_commands.describe(other_players="[Optional] Other players you'd like to play with "
                                      "(only works in server text channels)")
-async def hangman(interaction: discord.Interaction, other_players: list[discord.User.mention]):
+async def hangman(interaction: discord.Interaction, *other_players: discord.User.mention):
     await interaction.response.defer()
 
     users = [interaction.message.author] + [player.user for player in other_players]
