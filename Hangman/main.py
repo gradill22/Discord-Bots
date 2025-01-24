@@ -48,6 +48,7 @@ async def hangman(interaction: discord.Interaction, *other_players: discord.User
 
     new_game = Hangman(interaction, channel=channel, users=game_players)
     GAMES.append(new_game)
+    return await new_game.start_game()
 
 
 @bot.event
