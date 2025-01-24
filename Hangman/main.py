@@ -31,7 +31,8 @@ async def on_ready():
 async def hangman(interaction: discord.Interaction, *other_players: discord.User.mention):
     await interaction.response.defer()
 
-    users = [interaction.message.author] + [player.user for player in other_players]
+    users = [interaction.message.author] + [player.user for player in other_players
+                                            if type(player) is discord.User.mention]
     game_players = []
     for user in users:
         if user not in PLAYERS:
