@@ -95,11 +95,10 @@ class Hangman:
             if guess not in self.word:
                 self.wrong_letters.append(guess)
                 wrong_guess = True
+            self.progress = " ".join([letter if letter in self.guessed_letters or letter not in string.ascii_uppercase
+                                      else self.missing_letter for letter in self.word])
         else:
             self.guessed_words.append(guess)
-
-        self.progress = " ".join([letter if letter in self.guessed_letters or letter not in string.ascii_uppercase
-                                  else self.missing_letter for letter in self.word])
 
         if self.is_done():
             return await self.win()

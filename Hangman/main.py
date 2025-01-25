@@ -72,7 +72,8 @@ async def on_message(message: discord.Message):
 
         for game in ACTIVE_GAMES:
             if game.is_game(message):
-                if await game.push_guess(message):
+                is_done = await game.push_guess(message)
+                if is_done:
                     ACTIVE_GAMES.remove(game)
                 return
 
