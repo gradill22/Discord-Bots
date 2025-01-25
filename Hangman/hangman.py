@@ -5,7 +5,7 @@ from random_word import Wordnik
 
 
 def process_word(word) -> str:
-    return str(word).split(" ")[0].upper()
+    return str(word).strip().upper()
 
 
 class Player:
@@ -17,7 +17,7 @@ class Player:
         wotd = json.loads(Wordnik().word_of_the_day())
         wotd = process_word(wotd["word"])
         for game in self.games:
-            if game.is_wotd and game.word == wotd:
+            if game.word == wotd and game.is_wotd:
                 return True
         return False
 
@@ -68,7 +68,7 @@ class Hangman:
     def is_done(self):
         if self.lives == 0 or self.word in self.guessed_words:
             return True
-        return self.missing_letter in self.word
+        return self.missing_letter in self.progress
 
     def format_definitions(self) -> str:
         def format_definition(definition: dict) -> str:
