@@ -70,12 +70,14 @@ async def on_message(message: discord.Message):
         if original_message.author != bot.user:  # Reply to our own messages only
             return
 
+        prune = []
         for game in ACTIVE_GAMES:
             if game.is_game(message):
-                is_done = await game.push_guess(message)
-                if is_done:
-                    ACTIVE_GAMES.remove(game)
-                return
+                for p in prune:
+                    ACTIVE_GAMES.remove(p)
+                return await game.push_guess(message)
+            elif game.is_done():
+                prune.append(game)
 
         response = await message.reply(content=f"Sorry {message.author.mention}, but I couldn't find an active game of "
                                                f"yours. Try doing `/hangman` in your server's text channel!")

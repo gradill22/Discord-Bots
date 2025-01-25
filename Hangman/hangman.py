@@ -131,30 +131,27 @@ class Hangman:
         content = f"{self.mentions}\n💀 **Game Over!** The word was **{word}.**\n\n{definitions}"
         return await self.game_message.edit_original_response(content=content)
 
-    async def push_guess(self, message: discord.Message) -> bool:
+    async def push_guess(self, message: discord.Message):
         channel = message.channel
         user = message.author
 
         if self.channel != channel:
-            await message.reply(f"Excuse me, do you know where **#{channel.name}** is? I seem to be lost...")
-            return False
+            return await message.reply(f"Excuse me, do you know where **#{channel.name}** is? I seem to be lost...")
 
         if user not in self.users:
             response = await message.reply(f"**Start your own damn game, {user.mention}!**\n\nYou can do so by doing "
                                            f"**`/hangman`** in one of your server's text channels!")
-            await response.delete(delay=10)
-            return False
+            return await response.delete(delay=10)
 
         guess = message.content.strip().upper()
         await message.delete()
 
         if len(guess) == 1 and guess in self.guessed_letters:
-            return False
+            return
         if guess in self.guessed_words:
-            return False
+            return
 
-        await self.update_progress(guess)
-        return self.is_done()
+        return await self.update_progress(guess)
 
     def is_game(self, message: discord.Message) -> bool:
         return message.author in self.users and not self.is_done()
