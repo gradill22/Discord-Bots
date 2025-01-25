@@ -10,7 +10,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 
 # Game variables
-GAMES: list[Hangman] = []
+ACTIVE_GAMES: list[Hangman] = []
 PLAYERS: list[Player] = []
 
 
@@ -48,31 +48,38 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
         game_players.append(player)
 
     new_game = Hangman(interaction, channel=channel, users=game_players)
-    GAMES.append(new_game)
+    ACTIVE_GAMES.append(new_game)
 
     return await new_game.start_game()
 
 
 @bot.event
 async def on_message(message: discord.Message):
+    global ACTIVE_GAMES
+
     if message.author.bot:
         return  # Ignore bot messages
+
+    if not message.channel.guild:  # Decline DMs
+        return message.channel.send(content=f"I only work in Discord server's at the moment. Use me in one of your "
+                                            f"server's text channels!")
 
     # Check if this message is a reply to a game message
     if message.reference and message.reference.cached_message:
         original_message = message.reference.cached_message
-        if original_message.author != bot.user:
+        if original_message.author != bot.user:  # Reply to our own messages only
             return
-        for game in GAMES:
+
+        for game in ACTIVE_GAMES:
             if game.is_game(message):
-                return await game.push_guess(message)
+                if await game.push_guess(message):
+                    ACTIVE_GAMES.remove(game)
+                return
 
         response = await message.reply(content=f"Sorry {message.author.mention}, but I couldn't find an active game of "
-                                               f"yours. Try doing `/hangman` in your server's text channel or in a "
-                                               f"private DM with me!")
-        if message.channel.guild:
-            await message.delete()
-            return await response.delete(delay=10)
+                                               f"yours. Try doing `/hangman` in your server's text channel!")
+        await message.delete()
+        return await response.delete(delay=10)
 
 
 def main():

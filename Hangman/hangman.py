@@ -4,6 +4,10 @@ import discord
 from random_word import Wordnik
 
 
+def process_word(word) -> str:
+    return str(word).split(" ")[0].upper()
+
+
 class Player:
     def __init__(self, user: discord.User):
         self.user = user
@@ -11,7 +15,7 @@ class Player:
 
     def has_done_wotd(self) -> bool:
         wotd = json.loads(Wordnik().word_of_the_day())
-        wotd = str(wotd["word"]).strip().upper()
+        wotd = process_word(wotd["word"])
         for game in self.games:
             if game.is_wotd and game.word == wotd:
                 return True
@@ -20,11 +24,10 @@ class Player:
 
 class Hangman:
     def __init__(self, interaction: discord.Interaction, users: list[Player] | Player,
-                 channel: discord.TextChannel | discord.DMChannel = None, lives: int = 5):
+                 channel: discord.TextChannel = None, lives: int = 5):
         self.players: list[Player] = users
         self.n_players: int = len(self.players)
         self.channel = channel
-        self.is_dm_channel = type(channel) is discord.DMChannel
         self.users = [player.user for player in self.players]
         self.mentions = " ".join(user.mention for user in self.users)
         self.word, self.definitions, self.is_wotd = self.get_word()
@@ -56,19 +59,16 @@ class Hangman:
         if do_wotd:
             self.set_users(new_users)
             wotd = json.loads(wordnik.word_of_the_day())
-            word = str(wotd["word"]).strip().upper()
+            word = process_word(wotd["word"])
             definitions = wotd["definitions"]
             return word, definitions, do_wotd
-        word = str(wordnik.get_random_word()).strip().upper()
+        word = process_word(wordnik.get_random_word())
         return word, list(), do_wotd
 
     def is_done(self):
         if self.lives == 0 or self.word in self.guessed_words:
             return True
-        word = self.word
-        for letter in self.guessed_letters:
-            word = word.replace(letter, "")
-        return len(word) == 0
+        return self.missing_letter in self.word
 
     def format_definitions(self) -> str:
         def format_definition(definition: dict) -> str:
@@ -97,7 +97,9 @@ class Hangman:
                 wrong_guess = True
         else:
             self.guessed_words.append(guess)
-            wrong_guess = True
+
+        self.progress = " ".join([letter if letter in self.guessed_letters or letter not in string.ascii_uppercase
+                                  else self.missing_letter for letter in self.word])
 
         if self.is_done():
             return await self.win()
@@ -105,9 +107,6 @@ class Hangman:
             self.lives -= int(wrong_guess)
             if self.is_done():
                 return await self.lose()
-
-        self.progress = " ".join([letter if letter in self.guessed_letters or letter not in string.ascii_uppercase
-                                  else self.missing_letter for letter in self.word])
 
         content = [self.mentions, self.title + "\n", self.progress + "\n",
                    " ".join([self.lives_emoji] * self.lives),
@@ -133,31 +132,30 @@ class Hangman:
         content = f"{self.mentions}\n💀 **Game Over!** The word was **{word}.**\n\n{definitions}"
         return await self.game_message.edit_original_response(content=content)
 
-    async def push_guess(self, message: discord.Message):
-        if self.is_done():
-            return await message.delete()
-
+    async def push_guess(self, message: discord.Message) -> bool:
         channel = message.channel
         user = message.author
 
         if self.channel != channel:
-            return await message.reply(f"Excuse me, do you know where **#{channel.name}** is? I seem to be lost...")
+            await message.reply(f"Excuse me, do you know where **#{channel.name}** is? I seem to be lost...")
+            return False
 
         if user not in self.users:
             response = await message.reply(f"**Start your own damn game, {user.mention}!**\n\nYou can do so by doing "
-                                           f"**`/hangman`** in one of your server's text channels or in a private DM!")
-            return await response.delete(delay=10)
+                                           f"**`/hangman`** in one of your server's text channels!")
+            await response.delete(delay=10)
+            return False
 
         guess = message.content.strip().upper()
-        if not self.is_dm_channel:
-            await message.delete()
+        await message.delete()
 
         if len(guess) == 1 and guess in self.guessed_letters:
-            return
+            return False
         if guess in self.guessed_words:
-            return
+            return False
 
-        return await self.update_progress(guess)
+        await self.update_progress(guess)
+        return self.is_done()
 
     def is_game(self, message: discord.Message) -> bool:
         return message.author in self.users and not self.is_done()
