@@ -1,5 +1,6 @@
 import os
 import discord
+import threading
 from discord.ext import commands
 from discord import app_commands
 from hangman import Hangman, Player
@@ -12,6 +13,22 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 # Game variables
 ACTIVE_GAMES: list[Hangman] = []
 PLAYERS: list[Player] = []
+
+
+# Update the list of active games to remove inactive games every 5 minutes
+def update_active_games(interval_seconds: int = 300):
+    global ACTIVE_GAMES
+    threading.Timer(interval=interval_seconds, function=update_active_games).start()
+
+    prune = []
+    for game in ACTIVE_GAMES:
+        if game.is_done():
+            prune.append(game)
+    for game in prune:
+        ACTIVE_GAMES.remove(game)
+
+    if len(prune) > 0:
+        print(f"Removed {len(prune):,} inactive games from the active games list!")
 
 
 @bot.event
@@ -49,6 +66,7 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
 
     new_game = Hangman(interaction, channel=channel, users=game_players)
     ACTIVE_GAMES.append(new_game)
+    print("\n\n".join(map(str, ACTIVE_GAMES)))
 
     return await new_game.start_game()
 
@@ -70,14 +88,9 @@ async def on_message(message: discord.Message):
         if original_message.author != bot.user:  # Reply to our own messages only
             return
 
-        prune = []
         for game in ACTIVE_GAMES:
             if game.is_game(message):
-                for p in prune:
-                    ACTIVE_GAMES.remove(p)
                 return await game.push_guess(message)
-            elif game.is_done():
-                prune.append(game)
 
         response = await message.reply(content=f"Sorry {message.author.mention}, but I couldn't find an active game of "
                                                f"yours. Try doing `/hangman` in your server's text channel!")

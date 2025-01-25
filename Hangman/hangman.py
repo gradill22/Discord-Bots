@@ -154,4 +154,13 @@ class Hangman:
         return await self.update_progress(guess)
 
     def is_game(self, message: discord.Message) -> bool:
-        return message.author in self.users and not self.is_done()
+        return message.author in self.users and message.channel == self.channel and not self.is_done()
+
+    def __str__(self):
+        return "\n".join([f"Player(s): {', '.join(user.name for user in self.users)}",
+                          f"Channel: {self.channel.name}",
+                          f"Server: {self.channel.guild.name}",
+                          f"Word: {self.word.title()}",
+                          f"Is Word of the Day: {self.is_wotd}",
+                          f"Is Done: {self.is_done()}"]
+                         )
