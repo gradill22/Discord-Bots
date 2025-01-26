@@ -69,6 +69,11 @@ class Hangman:
         return word, list(), do_wotd
 
     def is_done(self):
+        try:
+            self.game_message.original_response()
+        except discord.errors.NotFound:
+            return True
+
         if self.lives == 0 or self.word in self.guessed_words:
             return True
         return self.missing_letter not in self.progress
