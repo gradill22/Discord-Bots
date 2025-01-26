@@ -16,7 +16,7 @@ PLAYERS: list[Player] = []
 
 # Update the list of active games to remove inactive games every 5 minutes
 @tasks.loop(minutes=5)
-async def update_active_games():
+async def update_active_games() -> None:
     global ACTIVE_GAMES
 
     prune = [game for game in ACTIVE_GAMES if game.is_done()]
@@ -29,6 +29,7 @@ async def update_active_games():
 @bot.event
 async def on_ready():
     print(f"Bot is ready as {bot.user}!")
+    update_active_games.start()
     await bot.change_presence(activity=discord.Game(name="Hangman | /hangman"))
     try:
         synced = await bot.tree.sync()
