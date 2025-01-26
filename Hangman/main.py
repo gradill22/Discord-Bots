@@ -27,8 +27,7 @@ def update_active_games(interval_seconds: int = 300):
     for game in prune:
         ACTIVE_GAMES.remove(game)
 
-    if len(prune) > 0:
-        print(f"Removed {len(prune):,} inactive games from the active games list!")
+    print(f"Removed {len(prune):,} inactive games from the active games list!")
 
 
 @bot.event
@@ -66,7 +65,6 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
 
     new_game = Hangman(interaction, channel=channel, users=game_players)
     ACTIVE_GAMES.append(new_game)
-    print("\n\n".join(map(str, ACTIVE_GAMES)))
 
     return await new_game.start_game()
 
@@ -100,6 +98,7 @@ async def on_message(message: discord.Message):
 
 def main():
     bot.run(os.environ["DISCORD_TOKEN"])
+    update_active_games()
 
 
 if __name__ == "__main__":
