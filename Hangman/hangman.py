@@ -68,7 +68,7 @@ class Hangman:
     def is_done(self):
         if self.lives == 0 or self.word in self.guessed_words:
             return True
-        return self.missing_letter in self.progress
+        return self.missing_letter not in self.progress
 
     def format_definitions(self) -> str:
         def format_definition(definition: dict) -> str:
