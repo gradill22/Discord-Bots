@@ -21,6 +21,9 @@ class Player:
                 return True
         return False
 
+    def has_active_game(self) -> bool:
+        return not self.games[-1].is_done()  # is the most recent game still active?
+
 
 class Hangman:
     def __init__(self, interaction: discord.Interaction, users: list[Player] | Player,

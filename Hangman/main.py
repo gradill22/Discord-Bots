@@ -58,7 +58,13 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
             continue
 
         player = PLAYERS[player_users.index(user)]
+        if player.has_active_game():
+            continue
+
         game_players.append(player)
+
+    if len(game_players) == 0:
+        return
 
     new_game = Hangman(interaction, channel=channel, users=game_players)
     ACTIVE_GAMES.append(new_game)
