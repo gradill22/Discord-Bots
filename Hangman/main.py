@@ -1,7 +1,6 @@
 import os
 import discord
-import threading
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 from hangman import Hangman, Player
 
@@ -16,18 +15,15 @@ PLAYERS: list[Player] = []
 
 
 # Update the list of active games to remove inactive games every 5 minutes
-def update_active_games(interval_seconds: int = 300):
+@tasks.loop(minutes=5)
+async def update_active_games():
     global ACTIVE_GAMES
-    threading.Timer(interval=interval_seconds, function=update_active_games).start()
 
-    prune = []
-    for game in ACTIVE_GAMES:
-        if game.is_done():
-            prune.append(game)
+    prune = [game for game in ACTIVE_GAMES if game.is_done()]
     for game in prune:
         ACTIVE_GAMES.remove(game)
 
-    print(f"Removed {len(prune):,} inactive games from the active games list!")
+    print(f"Removed {len(prune):,} inactive game(s) from the active games list!")
 
 
 @bot.event
@@ -98,7 +94,6 @@ async def on_message(message: discord.Message):
 
 def main():
     bot.run(os.environ["DISCORD_TOKEN"])
-    update_active_games()
 
 
 if __name__ == "__main__":
