@@ -19,8 +19,8 @@ class Player:
                 return True
         return False
 
-    def has_active_game(self) -> bool:
-        return not self.games[-1].is_done()  # is the most recent game still active?
+    async def has_active_game(self) -> bool:
+        return not await self.games[-1].is_done()  # is the most recent game still active?
 
     def points(self, days: int = 0) -> int:
         if days > 0:
@@ -41,7 +41,8 @@ class Hangman:
         "WORD": {"CORRECT": 50,
                  "INCORRECT": -10},
         "WIN": 100,
-        "LOSS": -50
+        "LOSS": -50,
+        "LIVES": 50
     }
 
     def __init__(self, interaction: discord.Interaction, users: list[Player] | Player,
@@ -161,6 +162,7 @@ class Hangman:
 
     async def win(self):
         self.points += self.POINTS["WIN"]
+        self.points += self.POINTS["LIVES"] * self.lives
         word = self.word.title()
         definitions = self.format_definitions()
         content = (f"{self.mentions}\n🎉 **You Won!** The word was **{word}**!\n\n"
@@ -169,6 +171,7 @@ class Hangman:
 
     async def lose(self):
         self.points += self.POINTS["LOSS"]
+        self.points += self.POINTS["LIVES"] * self.lives
         word = self.word.title()
         definitions = self.format_definitions()
         content = (f"{self.mentions}\n💀 **Game Over!** The word was **{word}.**\n\n"
@@ -208,7 +211,7 @@ class Hangman:
                           f"Word: {self.word.title()}",
                           f"Is Word of the Day: {self.is_wotd}",
                           f"Points: {self.points}",
-                          f"Is Done: {self.is_done()}"]
+                          f"UTC Datetime: {self.datetime}"]
                          )
 
 
