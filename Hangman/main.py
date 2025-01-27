@@ -92,7 +92,7 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
     num_players = board.count("\n") + int(len(board) > 0)
 
     if num_players < MIN_LEADERBOARD_PLAYERS:
-        return await interaction.message.reply(content=f"Sorry {interaction.user.mention}, but there aren't enough "
+        return await interaction.message.edit_original_response(content=f"Sorry {interaction.user.mention}, but there aren't enough "
                                                        f"players in {server.name} to compile a leaderboard.\n\n"
                                                        f"Minimum number of players: {MIN_LEADERBOARD_PLAYERS}\n"
                                                        f"Number of {server.name}'s players this {period}: {num_players}"
