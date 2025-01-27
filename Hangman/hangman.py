@@ -1,11 +1,9 @@
+import math
 import json
 import string
 import discord
 from random_word import Wordnik
-
-
-def process_word(word) -> str:
-    return str(word).strip().upper()
+from datetime import datetime, timezone
 
 
 class Player:
@@ -15,7 +13,7 @@ class Player:
 
     def has_done_wotd(self) -> bool:
         wotd = json.loads(Wordnik().word_of_the_day())
-        wotd = process_word(wotd["word"])
+        wotd = Hangman.process_word(wotd["word"])
         for game in self.games:
             if game.word == wotd and game.is_wotd:
                 return True
@@ -24,8 +22,28 @@ class Player:
     def has_active_game(self) -> bool:
         return not self.games[-1].is_done()  # is the most recent game still active?
 
+    def points(self, days: int = 0) -> int:
+        if days > 0:
+            now = datetime.now(timezone.utc)
+            return sum(game.points for game in self.games if (now - game.datetime).days <= days)
+
+        return sum(game.points for game in self.games)
+
+    def num_games_since_days(self, days: int):
+        now = datetime.now(timezone.utc)
+        return sum((now - game.datetime).days <= days for game in self.games)
+
 
 class Hangman:
+    POINTS: dict = {
+        "LETTER": {"CORRECT": 10,
+                   "INCORRECT": -5},
+        "WORD": {"CORRECT": 50,
+                 "INCORRECT": -10},
+        "WIN": 100,
+        "LOSS": -50
+    }
+
     def __init__(self, interaction: discord.Interaction, users: list[Player] | Player,
                  channel: discord.TextChannel = None, lives: int = 5):
         self.players: list[Player] = users
@@ -44,6 +62,12 @@ class Hangman:
                                   for letter in self.word])
         self.game_message = interaction
         self.title = "**Hangman**"
+        self.points = 0
+        self.datetime = datetime.now(timezone.utc)
+
+    @staticmethod
+    def process_word(word) -> str:
+        return str(word).strip().split()[0].upper()
 
     def set_users(self, users: list[Player] | Player):
         self.players = users if type(users) is list else [users]
@@ -62,10 +86,10 @@ class Hangman:
         if do_wotd:
             self.set_users(new_users)
             wotd = json.loads(wordnik.word_of_the_day())
-            word = process_word(wotd["word"])
+            word = Hangman.process_word(wotd["word"])
             definitions = wotd["definitions"]
             return word, definitions, do_wotd
-        word = process_word(wordnik.get_random_word())
+        word = Hangman.process_word(wordnik.get_random_word())
         return word, list(), do_wotd
 
     def is_done(self):
@@ -97,26 +121,33 @@ class Hangman:
         return await self.game_message.edit_original_response(content="\n".join(content))
 
     async def update_progress(self, guess: str):
-        wrong_guess = False
         if len(guess) == 1:
             self.guessed_letters.append(guess)
             if guess not in self.word:
                 self.wrong_letters.append(guess)
-                wrong_guess = True
+                self.points += self.POINTS["LETTER"]["INCORRECT"]
+                self.lives -= 1
+                if self.lives == 0:
+                    return await self.lose()
+            else:
+                self.points += self.POINTS["LETTER"]["CORRECT"] * self.word.count(guess)
             self.progress = " ".join([letter if letter in self.guessed_letters or letter not in string.ascii_uppercase
                                       else self.missing_letter for letter in self.word])
+            if not self.progress.count(self.missing_letter):
+                return await self.win()
         else:
             self.guessed_words.append(guess)
-
-        if self.is_done():
-            return await self.win()
-        else:
-            self.lives -= int(wrong_guess)
-            if self.is_done():
+            if guess == self.word:
+                self.points += self.POINTS["WORD"]["CORRECT"]
+                return await self.win()
+            self.points += self.POINTS["WORD"]["INCORRECT"]
+            self.lives -= 1
+            if self.lives == 0:
                 return await self.lose()
 
         content = [self.mentions, self.title + "\n", self.progress + "\n",
                    " ".join([self.lives_emoji] * self.lives),
+                   f"Score: {self.points:,}",
                    f"Used letters: {', '.join(sorted(self.wrong_letters))}",
                    f"Used words: {', '.join(word.title() for word in sorted(self.guessed_words))}",
                    "\nGuess a letter by replying to this message!"]
@@ -128,32 +159,37 @@ class Hangman:
         return await self.game_message.edit_original_response(content="\n".join(content))
 
     async def win(self):
+        self.points += self.POINTS["WIN"]
         word = self.word.title()
         definitions = self.format_definitions()
-        content = f"{self.mentions}\n🎉 **You Won!** The word was **{word}**!\n\n{definitions}"
+        content = (f"{self.mentions}\n🎉 **You Won!** The word was **{word}**!\n\n"
+                   f"You won **{self.points}** points!\n\n{definitions}")
         return await self.game_message.edit_original_response(content=content)
 
     async def lose(self):
+        self.points += self.POINTS["LOSS"]
         word = self.word.title()
         definitions = self.format_definitions()
-        content = f"{self.mentions}\n💀 **Game Over!** The word was **{word}.**\n\n{definitions}"
+        content = (f"{self.mentions}\n💀 **Game Over!** The word was **{word}.**\n\n"
+                   f"You got **{self.points}** points.\n\n{definitions}")
         return await self.game_message.edit_original_response(content=content)
 
     async def push_guess(self, message: discord.Message):
         channel = message.channel
-        user = message.author
-
         if self.channel != channel:
             return await message.reply(f"Excuse me, do you know where **#{channel.name}** is? I seem to be lost...")
 
+        user = message.author
         if user not in self.users:
             response = await message.reply(f"**Start your own damn game, {user.mention}!**\n\nYou can do so by doing "
-                                           f"**`/hangman`** in one of your server's text channels!")
+                                           f"`/hangman` in one of your server's text channels!")
             return await response.delete(delay=10)
 
-        guess = message.content.strip().upper()
+        guess = Hangman.process_word(message.content)
         await message.delete()
 
+        if len(guess) != 1 or len(guess) != len(self.word):
+            return
         if len(guess) == 1 and guess in self.guessed_letters:
             return
         if guess in self.guessed_words:
@@ -166,9 +202,19 @@ class Hangman:
 
     def __str__(self):
         return "\n".join([f"Player(s): {', '.join(user.name for user in self.users)}",
-                          f"Channel: {self.channel.name}",
                           f"Server: {self.channel.guild.name}",
+                          f"Channel: {self.channel.name}",
                           f"Word: {self.word.title()}",
                           f"Is Word of the Day: {self.is_wotd}",
+                          f"Points: {self.points}",
                           f"Is Done: {self.is_done()}"]
                          )
+
+
+def leaderboard_string(players: list[Player], num_players: int = 10, n_days: int = 0) -> str:
+    players = [player for player in players if player.num_games_since_days(n_days) > 0]
+    players = sorted(players, key=lambda p: p.points(n_days), reverse=True)[:max(num_players, len(players))]
+    m = math.floor(math.log10(len(players))) + 1
+    s = "\n".join([" - ".join((f"{i+1:{m}d}", player.user.mention, player.points))
+                   for i, player in enumerate(players)])
+    return s

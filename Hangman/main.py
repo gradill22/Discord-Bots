@@ -1,8 +1,9 @@
 import os
 import discord
+from typing import Sequence
 from discord.ext import commands, tasks
 from discord import app_commands
-from hangman import Hangman, Player
+from hangman import Hangman, Player, leaderboard_string
 
 # Bot setup
 intents = discord.Intents.default()
@@ -12,6 +13,7 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 # Game variables
 ACTIVE_GAMES: list[Hangman] = []
 PLAYERS: list[Player] = []
+MIN_LEADERBOARD_PLAYERS: int = 1
 
 
 # Update the list of active games to remove inactive games every 5 minutes
@@ -22,8 +24,10 @@ async def update_active_games() -> None:
     prune = [game for game in ACTIVE_GAMES if game.is_done()]
     for game in prune:
         ACTIVE_GAMES.remove(game)
+        del game
 
     print(f"Removed {len(prune):,} inactive game(s) from the active games list!")
+    del prune
 
 
 @bot.event
@@ -39,14 +43,14 @@ async def on_ready():
 
 
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
-@app_commands.describe(other_player="[Optional] An additional player you can play Hangman with!")
-async def hangman(interaction: discord.Interaction, other_player: discord.Member = None):
+@app_commands.describe(other_player="[Optional] Additional player(s) you can play Hangman with!")
+async def hangman(interaction: discord.Interaction, other_players: Sequence[discord.Member] = None):
     await interaction.response.defer()
 
     channel = interaction.channel or interaction.user.dm_channel
     users = [interaction.user]
-    if other_player is not None and interaction.channel is not None:
-        users.append(other_player)
+    if other_players is not None and interaction.channel is not None:
+        users.extend(other_players)
 
     game_players = []
     player_users = [player.user for player in PLAYERS]
@@ -70,6 +74,37 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
     ACTIVE_GAMES.append(new_game)
 
     return await new_game.start_game()
+
+
+@bot.tree.command(name="leaderboard", description="A leaderboard for all Hangman players in your server!")
+@app_commands.describe(number_of_top_players="[Default 10] The number of players to include in the leaderboard",
+                       period="[Default \"This Week\"] How far back the leaderboard should be calculated")
+@app_commands.choices(choices=[
+    app_commands.Choice(name="Today", value="day"),
+    app_commands.Choice(name="This Week", value="week"),
+    app_commands.Choice(name="This Month", value="month"),
+])
+async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = 10,
+                      period: app_commands.Choice[str] = "week"):
+    n_days = 1 if period == "day" else 7 if period == "week" else 30
+
+    await interaction.response.defer()
+
+    server = interaction.guild
+    players = [player for player in PLAYERS if player.user in server.members]
+    board = leaderboard_string(players, number_of_top_players, n_days)
+    num_players = board.count("\n") + int(len(board) > 0)
+
+    if num_players < MIN_LEADERBOARD_PLAYERS:
+        return await interaction.message.reply(content=f"Sorry {interaction.user.mention}, but there aren't enough "
+                                                       f"players in {server.name} to compile a leaderboard.\n\n"
+                                                       f"Minimum number of players: {MIN_LEADERBOARD_PLAYERS}\n"
+                                                       f"Number of {server.name}'s players this {period}: {num_players}"
+                                               )
+
+    board = f"**{server.name} Top {number_of_top_players:,} Leaderboard**\n\n" + board
+
+    return await interaction.channel.send(content=board, silent=True)
 
 
 @bot.event
