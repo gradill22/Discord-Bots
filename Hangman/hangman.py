@@ -36,14 +36,17 @@ class Player:
 
 class Hangman:
     POINTS: dict = {
-        "LETTER": {"CORRECT": 10,
-                   "INCORRECT": -5},
+        "LETTER": {"VOWEL": {"CORRECT": 5,
+                             "INCORRECT": -5},
+                   "CONSONANT": {"CORRECT": 10,
+                                 "INCORRECT": -5}},
         "WORD": {"CORRECT": 50,
                  "INCORRECT": -10},
         "WIN": 100,
         "LOSS": -50,
         "LIVES": 50
     }
+    VOWELS: str = "AEIOU"
 
     def __init__(self, interaction: discord.Interaction, users: list[Player] | Player,
                  channel: discord.TextChannel = None, lives: int = 5):
@@ -118,15 +121,16 @@ class Hangman:
 
     async def update_progress(self, guess: str):
         if len(guess) == 1:
+            is_vowel = guess in self.VOWELS if sum(self.word.count(v) for v in self.VOWELS) > 0 else guess == "Y"
             self.guessed_letters.append(guess)
             if guess not in self.word:
                 self.wrong_letters.append(guess)
-                self.points += self.POINTS["LETTER"]["INCORRECT"]
+                self.points += self.POINTS["LETTER"]["VOWEL" if is_vowel else "CONSONANT"]["INCORRECT"]
                 self.lives -= 1
                 if self.lives == 0:
                     return await self.lose()
             else:
-                self.points += self.POINTS["LETTER"]["CORRECT"] * self.word.count(guess)
+                self.points += self.POINTS["LETTER"]["VOWEL" if is_vowel else "CONSONANT"]["CORRECT"] * self.word.count(guess)
             self.progress = " ".join([letter if letter in self.guessed_letters or letter not in string.ascii_uppercase
                                       else self.missing_letter for letter in self.word])
             if not self.progress.count(self.missing_letter):
