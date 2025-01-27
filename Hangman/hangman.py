@@ -19,8 +19,8 @@ class Player:
                 return True
         return False
 
-    async def has_active_game(self) -> bool:
-        return not await self.games[-1].is_done()  # is the most recent game still active?
+    def has_active_game(self) -> bool:
+        return not self.games[-1].is_done()  # is the most recent game still active?
 
     def points(self, days: int = 0) -> int:
         if days > 0:
@@ -93,13 +93,7 @@ class Hangman:
         word = Hangman.process_word(wordnik.get_random_word())
         return word, list(), do_wotd
 
-    async def is_done(self):
-        try:
-            await self.game_message.original_response()
-        except discord.errors.NotFound:
-            print("This message was probably deleted.")
-            return True
-
+    def is_done(self):
         if self.lives == 0 or self.word in self.guessed_words:
             return True
         return self.missing_letter not in self.progress
@@ -201,8 +195,8 @@ class Hangman:
 
         return await self.update_progress(guess)
 
-    async def is_game(self, message: discord.Message) -> bool:
-        return message.author in self.users and message.channel == self.channel and not (await self.is_done())
+    def is_game(self, message: discord.Message) -> bool:
+        return message.author in self.users and message.channel == self.channel and not self.is_done()
 
     def __str__(self):
         return "\n".join([f"Player(s): {', '.join(user.name for user in self.users)}",
@@ -211,7 +205,8 @@ class Hangman:
                           f"Word: {self.word.title()}",
                           f"Is Word of the Day: {self.is_wotd}",
                           f"Points: {self.points}",
-                          f"UTC Datetime: {self.datetime}"]
+                          f"UTC Datetime: {self.datetime}",
+                          f"Is Done: {self.is_done()}"]
                          )
 
 

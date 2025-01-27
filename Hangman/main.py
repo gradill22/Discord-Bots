@@ -20,7 +20,7 @@ MIN_LEADERBOARD_PLAYERS: int = 1
 async def update_active_games() -> None:
     global ACTIVE_GAMES
 
-    prune = [game for game in ACTIVE_GAMES if await game.is_done()]
+    prune = [game for game in ACTIVE_GAMES if game.is_done()]
     for game in prune:
         ACTIVE_GAMES.remove(game)
         del game
@@ -61,7 +61,7 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
             continue
 
         player = PLAYERS[player_users.index(user)]
-        if not await player.has_active_game():
+        if not player.has_active_game():
             game_players.append(player)
 
     if len(game_players) == 0:
@@ -122,7 +122,7 @@ async def on_message(message: discord.Message):
             return
 
         for game in ACTIVE_GAMES:
-            if await game.is_game(message):
+            if game.is_game(message):
                 return await game.push_guess(message)
 
         response = await message.reply(content=f"Sorry {message.author.mention}, but I couldn't find an active game of "
