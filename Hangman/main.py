@@ -1,6 +1,5 @@
 import os
 import discord
-from typing import Sequence
 from discord.ext import commands, tasks
 from discord import app_commands
 from hangman import Hangman, Player, leaderboard_string
@@ -43,14 +42,14 @@ async def on_ready():
 
 
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
-@app_commands.describe(other_player="[Optional] Additional player(s) you can play Hangman with!")
-async def hangman(interaction: discord.Interaction, other_players: Sequence[discord.Member] = None):
+@app_commands.describe(other_player="[Optional] An additional player you can play Hangman with!")
+async def hangman(interaction: discord.Interaction, other_player: discord.Member = None):
     await interaction.response.defer()
 
     channel = interaction.channel or interaction.user.dm_channel
     users = [interaction.user]
-    if other_players is not None and interaction.channel is not None:
-        users.extend(other_players)
+    if other_player is not None and interaction.channel is not None:
+        users.append(other_player)
 
     game_players = []
     player_users = [player.user for player in PLAYERS]
@@ -62,10 +61,8 @@ async def hangman(interaction: discord.Interaction, other_players: Sequence[disc
             continue
 
         player = PLAYERS[player_users.index(user)]
-        if player.has_active_game():
-            continue
-
-        game_players.append(player)
+        if not player.has_active_game():
+            game_players.append(player)
 
     if len(game_players) == 0:
         return
