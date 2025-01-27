@@ -92,9 +92,9 @@ class Hangman:
         word = Hangman.process_word(wordnik.get_random_word())
         return word, list(), do_wotd
 
-    def is_done(self):
+    async def is_done(self):
         try:
-            self.game_message.original_response()
+            await self.game_message.original_response()
         except discord.errors.NotFound:
             return True
 
