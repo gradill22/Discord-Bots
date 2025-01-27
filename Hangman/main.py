@@ -20,7 +20,7 @@ MIN_LEADERBOARD_PLAYERS: int = 1
 async def update_active_games() -> None:
     global ACTIVE_GAMES
 
-    prune = [game for game in ACTIVE_GAMES if game.is_done()]
+    prune = [game for game in ACTIVE_GAMES if await game.is_done()]
     for game in prune:
         ACTIVE_GAMES.remove(game)
         del game
@@ -122,7 +122,7 @@ async def on_message(message: discord.Message):
             return
 
         for game in ACTIVE_GAMES:
-            if game.is_game(message):
+            if await game.is_game(message):
                 return await game.push_guess(message)
 
         response = await message.reply(content=f"Sorry {message.author.mention}, but I couldn't find an active game of "

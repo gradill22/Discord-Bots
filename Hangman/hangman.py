@@ -96,6 +96,7 @@ class Hangman:
         try:
             await self.game_message.original_response()
         except discord.errors.NotFound:
+            print("This message was probably deleted.")
             return True
 
         if self.lives == 0 or self.word in self.guessed_words:
@@ -197,8 +198,8 @@ class Hangman:
 
         return await self.update_progress(guess)
 
-    def is_game(self, message: discord.Message) -> bool:
-        return message.author in self.users and message.channel == self.channel and not self.is_done()
+    async def is_game(self, message: discord.Message) -> bool:
+        return message.author in self.users and message.channel == self.channel and not (await self.is_done())
 
     def __str__(self):
         return "\n".join([f"Player(s): {', '.join(user.name for user in self.users)}",
