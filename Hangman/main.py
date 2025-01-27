@@ -23,7 +23,6 @@ async def update_active_games() -> None:
     prune = [game for game in ACTIVE_GAMES if game.is_done()]
     for game in prune:
         ACTIVE_GAMES.remove(game)
-        del game
 
     print(f"Removed {len(prune):,} inactive game(s) from the active games list!")
     del prune
@@ -123,6 +122,7 @@ async def on_message(message: discord.Message):
 
         for game in ACTIVE_GAMES:
             if game.is_game(message):
+                print(f"Active game:", game, sep="\n")
                 return await game.push_guess(message)
 
         response = await message.reply(content=f"Sorry {message.author.mention}, but I couldn't find an active game of "

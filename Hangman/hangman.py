@@ -179,7 +179,7 @@ class Hangman:
 
         user = message.author
         if user not in self.users:
-            response = await message.reply(f"**Start your own damn game, {user.mention}!**\n\nYou can do so by doing "
+            response = await message.reply(f"**Start your own game, {user.mention}!**\n\nYou can do so by doing "
                                            f"`/hangman` in one of your server's text channels!")
             return await response.delete(delay=10)
 
