@@ -186,7 +186,7 @@ class Hangman:
         guess = Hangman.process_word(message.content)
         await message.delete()
 
-        if len(guess) != 1 or len(guess) != len(self.word):
+        if len(guess) != 1 and len(guess) != len(self.word):
             return
         if len(guess) == 1 and guess in self.guessed_letters:
             return
