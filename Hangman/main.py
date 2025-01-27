@@ -98,7 +98,7 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
                                                        f"Number of {server.name}'s players this {period}: {num_players}"
                                                )
 
-    board = f"**{server.name} Top {number_of_top_players:,} Leaderboard**\n\n" + board
+    board = f"**{server.name} Top {number_of_top_players:,} Leaderboard for This {str(period).title()}**\n\n" + board
 
     return await interaction.channel.send(content=board, silent=True)
 

@@ -143,7 +143,6 @@ class Hangman:
 
         content = [self.mentions, self.title + "\n", self.progress + "\n",
                    " ".join([self.lives_emoji] * self.lives),
-                   f"Score: {self.points:,}",
                    f"Used letters: {', '.join(sorted(self.wrong_letters))}",
                    f"Used words: {', '.join(word.title() for word in sorted(self.guessed_words))}",
                    "\nGuess a letter by replying to this message!"]
