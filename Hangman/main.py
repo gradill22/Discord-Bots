@@ -61,7 +61,7 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
             continue
 
         player = PLAYERS[player_users.index(user)]
-        if not player.has_active_game():
+        if not await player.has_active_game():
             game_players.append(player)
 
     if len(game_players) == 0:
