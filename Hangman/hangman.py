@@ -216,7 +216,7 @@ class Hangman:
 def leaderboard_string(players: list[Player], num_players: int = 10, n_days: int = 0) -> str:
     players = [player for player in players if player.num_games_since_days(n_days) > 0]
     players = sorted(players, key=lambda p: p.points(n_days), reverse=True)[:max(num_players, len(players))]
-    m = math.floor(math.log10(len(players))) + 1
+    m = math.floor(math.log10(max(len(players), 1))) + 1
     s = "\n".join([" - ".join((f"{i+1:{m}d}", player.user.mention, player.points))
                    for i, player in enumerate(players)])
     return s
