@@ -49,7 +49,7 @@ class Hangman:
     VOWELS: str = "AEIOU"
 
     def __init__(self, interaction: discord.Interaction, users: list[Player] | Player,
-                 channel: discord.TextChannel = None, lives: int = 5):
+                 channel: discord.TextChannel, lives: int = 5):
         self.players: list[Player] = users
         self.n_players: int = len(self.players)
         self.channel = channel
@@ -168,7 +168,6 @@ class Hangman:
 
     async def lose(self):
         self.points += self.POINTS["LOSS"]
-        self.points += self.POINTS["LIVES"] * self.lives
         word = self.word.title()
         definitions = self.format_definitions()
         content = (f"{self.mentions}\n💀 **Game Over!** The word was **{word}.**\n\n"
