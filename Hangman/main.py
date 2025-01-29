@@ -7,6 +7,7 @@ from hangman import Hangman, Player, leaderboard_string
 # Bot setup
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 
 # Game variables
@@ -24,7 +25,8 @@ async def update_active_games() -> None:
     for game in prune:
         ACTIVE_GAMES.remove(game)
 
-    print(f"Removed {len(prune):,} inactive game(s) from the active games list!")
+    if len(prune) > 0:
+        print(f"Removed {len(prune):,} inactive game(s) from the active games list!")
     del prune
 
 
@@ -79,10 +81,11 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
     app_commands.Choice(name="Today", value="day"),
     app_commands.Choice(name="This Week", value="week"),
     app_commands.Choice(name="This Month", value="month"),
+    app_commands.Choice(name="All Time", value="all")
 ])
 async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = 10,
                       period: app_commands.Choice[str] = "week"):
-    n_days = 1 if period == "day" else 7 if period == "week" else 30
+    n_days = 1 if period == "day" else 7 if period == "week" else 30 if period == "month" else 0
 
     await interaction.response.defer()
 
@@ -90,19 +93,19 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
     players = [player for player in PLAYERS if player.user in server.members]
     board = leaderboard_string(players, number_of_top_players, n_days)
     num_players = board.count("\n") + int(len(board) > 0)
+    period = str(period.name) if type(period) is app_commands.Choice else str(period)
 
     if num_players < MIN_LEADERBOARD_PLAYERS:
-        return await interaction.edit_original_response(content=f"Sorry {interaction.user.mention}, but there aren't "
-                                                                f"enough players in {server.name} to compile a "
-                                                                f"leaderboard.\n\nMinimum number of players: "
-                                                                f"{MIN_LEADERBOARD_PLAYERS}\n"
-                                                                f"Number of {server.name}'s players this {period}: "
-                                                                f"{num_players}"
-                                                        )
+        return await interaction.followup.send(content=f"Sorry {interaction.user.mention}, but there aren't enough "
+                                                       f"players in {server.name} to compile a leaderboard.\n\n"
+                                                       f"Minimum number of players: {MIN_LEADERBOARD_PLAYERS}\n"
+                                                       f"Number of {server.name}'s players {period.lower()}: "
+                                                       f"{num_players}"
+                                               )
 
-    board = f"**{server.name} Top {number_of_top_players:,} Leaderboard for This {str(period).title()}**\n\n" + board
+    board = f"**{server.name} Top {num_players:,} Leaderboard for {period.title()}**\n\n" + board
 
-    return await interaction.channel.send(content=board, silent=True)
+    return await interaction.followup.send(content=board, silent=True)
 
 
 @bot.event
@@ -133,6 +136,8 @@ async def on_message(message: discord.Message):
 
 
 def main():
+    with open("token.txt", "r") as file:
+        os.environ["DISCORD_TOKEN"] = file.readline()
     bot.run(os.environ["DISCORD_TOKEN"])
 
 
