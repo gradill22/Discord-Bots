@@ -48,11 +48,10 @@ class Hangman:
     }
     VOWELS: str = "AEIOU"
 
-    def __init__(self, interaction: discord.Interaction, users: list[Player] | Player,
-                 channel: discord.TextChannel, lives: int = 5):
+    def __init__(self, interaction: discord.Interaction, users: list[Player] | Player, lives: int = 5):
         self.players: list[Player] = users
         self.n_players: int = len(self.players)
-        self.channel = channel
+        self.channel = interaction.channel
         self.users = [player.user for player in self.players]
         self.mentions = " ".join(user.mention for user in self.users)
         self.word, self.definitions, self.is_wotd = self.get_word()
@@ -65,7 +64,7 @@ class Hangman:
         self.progress = " ".join([self.missing_letter if letter in string.ascii_uppercase else letter
                                   for letter in self.word])
         self.game_message = interaction
-        self.title = "**Hangman**"
+        self.title = "**H_NGM_N WORD OF THE DAY**" if self.is_wotd else "**H_NGM_N**"
         self.points = 0
         self.datetime = datetime.now(timezone.utc)
 
@@ -76,8 +75,6 @@ class Hangman:
     def set_users(self, users: list[Player] | Player):
         self.players = users if type(users) is list else [users]
         self.n_players = len(users)
-        if self.n_players == 1 and self.channel is None:
-            self.channel = self.players[0].user.dm_channel
         self.mentions = " ".join(player.user.mention for player in self.players)
         for player in self.players:
             player.games.append(self)
@@ -93,6 +90,7 @@ class Hangman:
             word = Hangman.process_word(wotd["word"])
             definitions = wotd["definitions"]
             return word, definitions, do_wotd
+        self.set_users(self.players)
         word = Hangman.process_word(wordnik.get_random_word())
         return word, list(), do_wotd
 
@@ -214,12 +212,19 @@ class Hangman:
 
 def leaderboard_string(players: list[Player], num_players: int = 10, n_days: int = 0) -> str:
     players = [player for player in players if player.num_games_since_days(n_days) > 0]
-    players = sorted(players, key=lambda p: p.points(n_days), reverse=True)[:max(num_players, len(players))]
+    num_players = len(players) if num_players < 1 else num_players
+    players = sorted(players, key=lambda p: p.points(n_days), reverse=True)[:min(num_players, len(players))]
     m = math.floor(math.log10(max(len(players), 1))) + 1
     places = [[f"{i+1:{m}d}", player.user.mention, str(player.points(n_days)) + " points"]
               for i, player in enumerate(players)]
+
+    place_emoji = {1: ":first_place:",
+                   2: ":second_place:",
+                   3: ":third_place:"}
     s = ""
     for i, place in enumerate(places):
-        place[0] = ":first_place:" if i == 0 else ":second_place:" if i == 2 else ":third_place:" if i == 3 else place[0]
+        place[0] = place_emoji.get(i + 1, place[0])
         s += "* " + " | ".join(place)
+        if i < len(places) - 1:
+            s += "\n"
     return s

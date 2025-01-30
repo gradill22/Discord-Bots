@@ -27,7 +27,7 @@ async def update_active_games() -> None:
 
     if len(prune) > 0:
         print(f"Removed {len(prune):,} inactive game(s) from the active games list!")
-    del prune
+    prune.clear()
 
 
 @bot.event
@@ -47,7 +47,6 @@ async def on_ready():
 async def hangman(interaction: discord.Interaction, other_player: discord.Member = None):
     await interaction.response.defer()
 
-    channel = interaction.channel or interaction.user.dm_channel
     users = [interaction.user]
     if other_player is not None and interaction.channel is not None:
         users.append(other_player)
@@ -68,7 +67,7 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
     if len(game_players) == 0:
         return
 
-    new_game = Hangman(interaction, channel=channel, users=game_players)
+    new_game = Hangman(interaction, users=game_players)
     ACTIVE_GAMES.append(new_game)
 
     return await new_game.start_game()
@@ -78,19 +77,19 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
 @app_commands.describe(number_of_top_players="[Default 10] The number of players to include in the leaderboard",
                        period="[Default \"This Week\"] How far back the leaderboard should be calculated")
 @app_commands.choices(period=[
-    app_commands.Choice(name="Today", value="day"),
-    app_commands.Choice(name="This Week", value="week"),
-    app_commands.Choice(name="This Month", value="month"),
-    app_commands.Choice(name="All Time", value="all")
+    app_commands.Choice(name="Today", value="Today"),
+    app_commands.Choice(name="This Week", value="This Week"),
+    app_commands.Choice(name="This Month", value="This Month"),
+    app_commands.Choice(name="All Time", value="All Time")
 ])
 async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = 10,
-                      period: app_commands.Choice[str] = "week"):
+                      period: app_commands.Choice[str] = "This Week"):
     await interaction.response.defer()
 
-    days_dict = {"day": 1,
-                 "week": 7,
-                 "month": 30,
-                 "all": 0}
+    days_dict = {"Today": 1,
+                 "This Week": 7,
+                 "This Month": 30,
+                 "All Time": 0}
 
     period = str(period.name) if type(period) is app_commands.Choice else str(period)
     n_days = days_dict[period]
@@ -141,6 +140,8 @@ async def on_message(message: discord.Message):
 
 
 def main():
+    with open("token.txt", "r") as file:
+        os.environ["DISCORD_TOKEN"] = file.readline()
     bot.run(os.environ["DISCORD_TOKEN"])
 
 
