@@ -85,15 +85,20 @@ async def hangman(interaction: discord.Interaction, other_player: discord.Member
 ])
 async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = 10,
                       period: app_commands.Choice[str] = "week"):
-    n_days = 1 if period == "day" else 7 if period == "week" else 30 if period == "month" else 0
-
     await interaction.response.defer()
+
+    days_dict = {"day": 1,
+                 "week": 7,
+                 "month": 30,
+                 "all": 0}
+
+    period = str(period.name) if type(period) is app_commands.Choice else str(period)
+    n_days = days_dict[period]
 
     server = interaction.guild
     players = [player for player in PLAYERS if player.user in server.members]
     board = leaderboard_string(players, number_of_top_players, n_days)
     num_players = board.count("\n") + int(len(board) > 0)
-    period = str(period.name) if type(period) is app_commands.Choice else str(period)
 
     if num_players < MIN_LEADERBOARD_PLAYERS:
         return await interaction.followup.send(content=f"Sorry {interaction.user.mention}, but there aren't enough "
