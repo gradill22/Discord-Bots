@@ -1,8 +1,10 @@
 import os
 import discord
-from discord.ext import commands, tasks
+from tabulate import tabulate
 from discord import app_commands
+from discord.ext import commands, tasks
 from hangman import Hangman, Player, leaderboard_string
+
 
 # Bot setup
 intents = discord.Intents.default()
@@ -16,8 +18,28 @@ PLAYERS: list[Player] = []
 MIN_LEADERBOARD_PLAYERS: int = 1
 
 
-# Update the list of active games to remove inactive games every 5 minutes
-@tasks.loop(minutes=5)
+def get_player(user: discord.User):
+    global PLAYERS
+
+    player = find_player(user)
+    if player:
+        return player
+
+    new_player = Player(user)
+    PLAYERS.append(new_player)
+    return new_player
+
+
+def find_player(user: discord.User):
+    global PLAYERS
+
+    for player in PLAYERS:
+        if user == player.user:
+            return player
+
+
+# Update the list of active games to remove inactive games every 30 minutes
+@tasks.loop(minutes=30)
 async def update_active_games() -> None:
     global ACTIVE_GAMES
 
@@ -27,14 +49,15 @@ async def update_active_games() -> None:
 
     if len(prune) > 0:
         print(f"Removed {len(prune):,} inactive game(s) from the active games list!")
-    prune.clear()
+        prune.clear()
 
 
 @bot.event
 async def on_ready():
     print(f"Bot is ready as {bot.user}!")
     update_active_games.start()
-    await bot.change_presence(activity=discord.Game(name="Hangman | /hangman"))
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching,
+                                                        name="you lose! | /hangman"))
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
@@ -43,34 +66,18 @@ async def on_ready():
 
 
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
-@app_commands.describe(other_player="[Optional] An additional player you can play Hangman with!")
-async def hangman(interaction: discord.Interaction, other_player: discord.Member = None):
-    await interaction.response.defer()
+async def hangman(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
 
-    users = [interaction.user]
-    if other_player is not None and interaction.channel is not None:
-        users.append(other_player)
-
-    game_players = []
-    player_users = [player.user for player in PLAYERS]
-    for user in users:
-        if user not in player_users:
-            new_player = Player(user)
-            PLAYERS.append(new_player)
-            game_players.append(new_player)
-            continue
-
-        player = PLAYERS[player_users.index(user)]
-        if not player.has_active_game():
-            game_players.append(player)
-
-    if len(game_players) == 0:
+    player = get_player(interaction.user)
+    if player.has_active_game():
         return
 
-    new_game = Hangman(interaction, users=game_players)
+    new_game = Hangman(player=player, channel=interaction.channel)
     ACTIVE_GAMES.append(new_game)
 
-    return await new_game.start_game()
+    content, view = new_game.start_game()
+    return await interaction.followup.send(content=content, view=view, ephemeral=True)
 
 
 @bot.tree.command(name="leaderboard", description="A leaderboard for all Hangman players in your server!")
@@ -96,8 +103,7 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
 
     server = interaction.guild
     players = [player for player in PLAYERS if player.user in server.members]
-    board = leaderboard_string(players, number_of_top_players, n_days)
-    num_players = board.count("\n") + int(len(board) > 0)
+    num_players, board = leaderboard_string(players, number_of_top_players, n_days)
 
     if num_players < MIN_LEADERBOARD_PLAYERS:
         return await interaction.followup.send(content=f"Sorry {interaction.user.mention}, but there aren't enough "
@@ -112,31 +118,27 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
     return await interaction.followup.send(content=board, silent=True)
 
 
-@bot.event
-async def on_message(message: discord.Message):
-    global ACTIVE_GAMES
+@bot.tree.command(name="history", description="A general history of your Hangman games!")
+@app_commands.describe(num_games="[Default 5] The last number of games to show a history of")
+async def history(interaction: discord.Interaction, num_games: int = 5):
+    await interaction.response.defer(ephemeral=True)
 
-    if message.author.bot:
-        return  # Ignore bot messages
+    user = interaction.user
+    player = find_player(user)
+    if player is None:
+        return await interaction.followup.send(f"You haven't played a single game yet, {user.mention}. Try using "
+                                               f"`/hangman` in one of your server's channels!", ephemeral=True)
 
-    if not message.channel.guild:  # Decline DMs
-        return message.channel.send(content=f"I only work in Discord server's at the moment. Use me in one of your "
-                                            f"server's text channels!")
+    df = player.last_n_games(num_games)
+    table = tabulate(df, headers="keys", showindex=False, tablefmt="presto")
 
-    # Check if this message is a reply to a game message
-    if message.reference and message.reference.cached_message:
-        original_message = message.reference.cached_message
-        if original_message.author != bot.user:  # Reply to our own messages only
-            return
+    num_games = len(df)
+    wins = sum(val == "Win" for val in df.loc[:, "Result"])
+    total_points = df["Points"].sum()
 
-        for game in ACTIVE_GAMES:
-            if game.is_game(message):
-                return await game.push_guess(message)
-
-        response = await message.reply(content=f"Sorry {message.author.mention}, but I couldn't find an active game of "
-                                               f"yours. Try doing `/hangman` in your server's text channel!")
-        await message.delete()
-        return await response.delete(delay=10)
+    return await interaction.followup.send(f"Your last {num_games} games:\n```\n{table}\n```\n"
+                                           f"Record: {wins}-{num_games - wins}\n"
+                                           f"Total points: {total_points}", ephemeral=True)
 
 
 def main():
