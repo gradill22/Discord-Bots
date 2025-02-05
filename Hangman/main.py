@@ -135,6 +135,7 @@ async def history(interaction: discord.Interaction, num_games: int = 5):
     num_games = len(df)
     wins = sum(val == "Win" for val in df.loc[:, "Result"])
     total_points = df["Points"].sum()
+    total_points = format(total_points, f".{'0' if int(total_points) == float(total_points) else '1'}f")
 
     return await interaction.followup.send(f"Your last {num_games} games:\n```\n{table}\n```\n"
                                            f"Record: {wins}-{num_games - wins}\n"
