@@ -256,24 +256,3 @@ class Hangman:
                           f"UTC Datetime: {self.datetime}",
                           f"Is Done: {self.is_done()}"]
                          )
-
-
-def leaderboard_string(players: list[Player], num_players: int = 10, n_days: int = 0) -> tuple[int, str]:
-    players = [player for player in players if player.num_games_since_days(n_days) > 0]
-    players = sorted(players, key=lambda p: p.points(n_days), reverse=True)
-    num_players = min(len(players), num_players)
-    m = math.floor(math.log10(max(len(players), 1))) + 1
-    places = [[f"{i+1:{m}d}", player.user.mention, str(player.points(n_days)) + " points"]
-              for i, player in enumerate(players)]
-
-    place_emoji = {1: ":first_place:",
-                   2: ":second_place:",
-                   3: ":third_place:"}
-    s = ""
-    for i, place in enumerate(places[:num_players]):
-        place[0] = place_emoji.get(i + 1, place[0])
-        s += "* " + " | ".join(place)
-        if i < len(places) - 1:
-            s += "\n"
-
-    return num_players, s

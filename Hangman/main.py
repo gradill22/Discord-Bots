@@ -1,9 +1,10 @@
 import os
+import math
 import discord
 from tabulate import tabulate
 from discord import app_commands
 from discord.ext import commands, tasks
-from hangman import Hangman, Player, leaderboard_string
+from hangman import Hangman, Player
 
 
 # Bot setup
@@ -36,6 +37,36 @@ def find_player(user: discord.User):
     for player in PLAYERS:
         if user == player.user:
             return player
+
+
+def leaderboard_string(players: list[Player], num_players: int = 10, n_days: int = 0) -> tuple[int, str]:
+    players = [player for player in players if player.num_games_since_days(n_days) > 0]
+    players = sorted(players, key=lambda p: p.points(n_days), reverse=True)
+    num_players = min(len(players), num_players)
+
+    place_emoji = {1: ":first_place:",
+                   2: ":second_place:",
+                   3: ":third_place:",
+                   4: ":four:",
+                   5: ":five:",
+                   6: ":six:",
+                   7: ":seven:",
+                   8: ":eight:",
+                   9: ":nine:",
+                   10: ":keycap_ten:"}
+
+    board = ""
+    m = math.floor(math.log10(max(len(players), 1))) + 1
+    for i, player in enumerate(players[:num_players]):
+        place = place_emoji.get(i + 1, f"{i+1:{m}d}")
+        mention = player.user.mention
+        points = player.points(n_days)
+        points = format(points, f".{'0' if int(points) == float(points) else '1'}f") + " points"
+        board += "* " + " | ".join(map(str, (place, mention, points)))
+        if i < num_players - 1:
+            board += "\n"
+
+    return num_players, board
 
 
 # Update the list of active games to remove inactive games every 30 minutes
