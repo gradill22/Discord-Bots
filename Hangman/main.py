@@ -80,12 +80,19 @@ async def update_active_games() -> None:
     global ACTIVE_GAMES
 
     prune = [game for game in ACTIVE_GAMES if game.is_done()]
+    users = []
     for game in prune:
+        player = game.player
+        if player.user not in users and not player.has_done_wotd():
+            users.append(player.user)
+            await game.channel.send(f"Don't forget to play today's word of the day {player.user.mention}!")
         ACTIVE_GAMES.remove(game)
 
     if len(prune) > 0:
         print(f"Removed {len(prune):,} inactive game(s) from the active games list!")
-        prune.clear()
+
+    del prune
+    del users
 
 
 @bot.event
