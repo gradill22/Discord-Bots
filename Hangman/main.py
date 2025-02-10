@@ -107,12 +107,7 @@ async def hangman(interaction: discord.Interaction):
 
     player = get_player(interaction.user)
     if player.has_active_game():
-        now = datetime.now(timezone.utc)
-        recent_game = player.games[-1]
-        if (now - recent_game.datetime).seconds < 900:  # 15 minutes
-            content, view = recent_game.current_progress()
-            return await interaction.followup.send(content=content, view=view, ephemeral=True)
-        recent_game.quit_game()
+        player.games[-1].quit_game()
 
     new_game = Hangman(player=player, channel=interaction.channel)
     ACTIVE_GAMES.append(new_game)
