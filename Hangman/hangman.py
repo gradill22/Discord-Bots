@@ -242,6 +242,23 @@ class Hangman:
 
         return self.update_progress(guess)
 
+    def current_progress(self) -> tuple[str, discord.ui.View] | tuple[str, None]:
+        if self.is_win():
+            return self.win(), None
+        if self.is_done():
+            return self.lose(), None
+
+        content = [self.title + "\n", self.progress + "\n",
+                   " ".join([self.lives_emoji] * self.lives),
+                   f"Used letters: {', '.join(sorted(self.wrong_letters))}",
+                   f"Used words: {', '.join(word.title() for word in sorted(self.guessed_words))}"]
+        if len(self.wrong_letters) == 0:
+            content.pop(-2)
+        if len(self.guessed_words) == 0:
+            content.pop(-1)
+
+        return "\n".join(content), HangmanButtonView(self)
+
     def is_win(self):
         return self.is_done() and self.lives > 0
 

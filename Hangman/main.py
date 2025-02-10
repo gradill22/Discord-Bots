@@ -5,12 +5,17 @@ from tabulate import tabulate
 from discord import app_commands
 from discord.ext import commands, tasks
 from hangman import Hangman, Player
+from datetime import datetime, timezone
 
 
-# Bot setup
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+# No DMs whatsoever
+intents.dm_messages = False
+intents.dm_polls = False
+intents.dm_typing = False
+intents.dm_reactions = False
 bot = commands.Bot(command_prefix="/", intents=intents)
 
 # Game variables
@@ -102,7 +107,12 @@ async def hangman(interaction: discord.Interaction):
 
     player = get_player(interaction.user)
     if player.has_active_game():
-        return
+        now = datetime.now(timezone.utc)
+        recent_game = player.games[-1]
+        if (now - recent_game.datetime).seconds < 900:  # 15 minutes
+            content, view = recent_game.current_progress()
+            return await interaction.followup.send(content=content, view=view, ephemeral=True)
+        recent_game.quit_game()
 
     new_game = Hangman(player=player, channel=interaction.channel)
     ACTIVE_GAMES.append(new_game)
