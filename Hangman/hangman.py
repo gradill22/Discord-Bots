@@ -119,6 +119,7 @@ class Hangman:
         self.channel = channel
         self.user = self.player.user
         self.word, self.definitions, self.is_wotd = self.get_word()
+        self.view = HangmanButtonView(self)
         self.guessed_letters = list()
         self.guessed_words = list()
         self.wrong_letters = list()
@@ -170,9 +171,8 @@ class Hangman:
                    " ".join([self.lives_emoji] * self.lives),
                    "\nGuess a letter by replying to this message!"]
         content = "\n".join(content)
-        view = HangmanButtonView(self)
 
-        return content, view
+        return content, self.view
 
     def update_progress(self, guess: str) -> str:
         if len(guess) == 1:
@@ -257,7 +257,7 @@ class Hangman:
         if len(self.guessed_words) == 0:
             content.pop(-1)
 
-        return "\n".join(content), HangmanButtonView(self)
+        return "\n".join(content), self.view
 
     def is_win(self):
         return self.is_done() and self.lives > 0

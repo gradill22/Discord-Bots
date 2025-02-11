@@ -5,7 +5,6 @@ from tabulate import tabulate
 from discord import app_commands
 from discord.ext import commands, tasks
 from hangman import Hangman, Player
-from datetime import datetime, timezone
 
 
 intents = discord.Intents.default()
@@ -80,32 +79,27 @@ async def update_active_games() -> None:
     global ACTIVE_GAMES
 
     prune = [game for game in ACTIVE_GAMES if game.is_done()]
-    users = []
     for game in prune:
-        player = game.player
-        if player.user not in users and not player.has_done_wotd():
-            users.append(player.user)
-            await game.channel.send(f"Don't forget to play today's word of the day {player.user.mention}!")
         ACTIVE_GAMES.remove(game)
 
     if len(prune) > 0:
         print(f"Removed {len(prune):,} inactive game(s) from the active games list!")
 
     del prune
-    del users
 
 
 @bot.event
 async def on_ready():
-    print(f"Bot is ready as {bot.user}!")
-    update_active_games.start()
-    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching,
-                                                        name="you lose! | /hangman"))
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
     except Exception as e:
         print(e)
+
+    print(f"Bot is ready as {bot.user}!")
+    update_active_games.start()
+    await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.competing,
+                                                        name="with /hangman"))
 
 
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
@@ -114,7 +108,14 @@ async def hangman(interaction: discord.Interaction):
 
     player = get_player(interaction.user)
     if player.has_active_game():
-        player.games[-1].quit_game()
+        active_game = player.games[-1]
+        if active_game.channel == interaction.channel:
+            content, view = active_game.current_progress()
+            return await interaction.followup.send(content=content, view=view, ephemeral=True)
+        game_channel = active_game.channel
+        game_server = game_channel.guild
+        content = f"You already have an active game in {game_server.name}'s {game_channel.jump_url}."
+        return await interaction.followup.send(content=content, ephemeral=True)
 
     new_game = Hangman(player=player, channel=interaction.channel)
     ACTIVE_GAMES.append(new_game)
