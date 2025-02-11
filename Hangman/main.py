@@ -10,11 +10,6 @@ from hangman import Hangman, Player
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-# No DMs whatsoever
-intents.dm_messages = False
-intents.dm_polls = False
-intents.dm_typing = False
-intents.dm_reactions = False
 bot = commands.Bot(command_prefix="/", intents=intents)
 
 # Game variables
@@ -99,7 +94,7 @@ async def on_ready():
     print(f"Bot is ready as {bot.user}!")
     update_active_games.start()
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.competing,
-                                                        name="with /hangman"))
+                                                        name="/hangman"))
 
 
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
@@ -133,6 +128,7 @@ async def hangman(interaction: discord.Interaction):
     app_commands.Choice(name="This Month", value="This Month"),
     app_commands.Choice(name="All Time", value="All Time")
 ])
+@app_commands.check(lambda interaction: interaction.guild is not None)  # command is strictly allowed in servers
 async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = 10,
                       period: app_commands.Choice[str] = "This Week"):
     await interaction.response.defer()
@@ -157,7 +153,7 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
                                                        f"{num_players}"
                                                )
 
-    board = f"**{server.name} Top {num_players:,} Leaderboard for {period.title()}**\n\n" + board
+    board = f"**{server.name} Top {num_players:,} Leaderboard of {period.title()}**\n\n" + board
 
     return await interaction.followup.send(content=board, silent=True)
 
