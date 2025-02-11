@@ -38,6 +38,10 @@ def find_player(user: discord.User):
             return player
 
 
+async def is_guild(interaction: discord.Interaction):
+    return interaction.guild is not None
+
+
 def leaderboard_string(players: list[Player], num_players: int = 10, n_days: int = 0) -> tuple[int, str]:
     players = [player for player in players if player.num_games_since_days(n_days) > 0]
     players = sorted(players, key=lambda p: p.points(n_days), reverse=True)
@@ -97,28 +101,6 @@ async def on_ready():
                                                         name="/hangman"))
 
 
-@bot.tree.command(name="hangman", description="Let's play Hangman!")
-async def hangman(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-
-    player = get_player(interaction.user)
-    if player.has_active_game():
-        active_game = player.games[-1]
-        if active_game.channel == interaction.channel:
-            content, view = active_game.current_progress()
-            return await interaction.followup.send(content=content, view=view, ephemeral=True)
-        game_channel = active_game.channel
-        game_server = game_channel.guild
-        content = f"You already have an active game in {game_server.name}'s {game_channel.jump_url}."
-        return await interaction.followup.send(content=content, ephemeral=True)
-
-    new_game = Hangman(player=player, channel=interaction.channel)
-    ACTIVE_GAMES.append(new_game)
-
-    content, view = new_game.start_game()
-    return await interaction.followup.send(content=content, view=view, ephemeral=True)
-
-
 @bot.tree.command(name="leaderboard", description="A leaderboard for all Hangman players in your server!")
 @app_commands.describe(number_of_top_players="[Default 10] The number of players to include in the leaderboard",
                        period="[Default \"This Week\"] How far back the leaderboard should be calculated")
@@ -128,7 +110,7 @@ async def hangman(interaction: discord.Interaction):
     app_commands.Choice(name="This Month", value="This Month"),
     app_commands.Choice(name="All Time", value="All Time")
 ])
-@app_commands.check(lambda interaction: interaction.guild is not None)  # command is strictly allowed in servers
+@app_commands.check(is_guild)  # Command is used strictly in servers
 async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = 10,
                       period: app_commands.Choice[str] = "This Week"):
     await interaction.response.defer()
@@ -156,6 +138,28 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
     board = f"**{server.name} Top {num_players:,} Leaderboard of {period.title()}**\n\n" + board
 
     return await interaction.followup.send(content=board, silent=True)
+
+
+@bot.tree.command(name="hangman", description="Let's play Hangman!")
+async def hangman(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    player = get_player(interaction.user)
+    if player.has_active_game():
+        active_game = player.games[-1]
+        if active_game.channel == interaction.channel:
+            content, view = active_game.current_progress()
+            return await interaction.followup.send(content=content, view=view, ephemeral=True)
+        game_channel = active_game.channel
+        game_server = game_channel.guild
+        content = f"You already have an active game in {game_server.name}'s {game_channel.jump_url}."
+        return await interaction.followup.send(content=content, ephemeral=True)
+
+    new_game = Hangman(player=player, channel=interaction.channel)
+    ACTIVE_GAMES.append(new_game)
+
+    content, view = new_game.start_game()
+    return await interaction.followup.send(content=content, view=view, ephemeral=True)
 
 
 @bot.tree.command(name="history", description="A general history of your Hangman games!")
