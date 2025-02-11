@@ -38,10 +38,6 @@ def find_player(user: discord.User):
             return player
 
 
-async def is_guild(interaction: discord.Interaction):
-    return interaction.guild is not None
-
-
 def leaderboard_string(players: list[Player], num_players: int = 10, n_days: int = 0) -> tuple[int, str]:
     players = [player for player in players if player.num_games_since_days(n_days) > 0]
     players = sorted(players, key=lambda p: p.points(n_days), reverse=True)
@@ -110,10 +106,12 @@ async def on_ready():
     app_commands.Choice(name="This Month", value="This Month"),
     app_commands.Choice(name="All Time", value="All Time")
 ])
-@app_commands.check(is_guild)  # Command is used strictly in servers
 async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = 10,
                       period: app_commands.Choice[str] = "This Week"):
     await interaction.response.defer()
+    if interaction.guild is None:
+        interaction.followup.send(content=f"Sorry {interaction.user.mention}, but `/leaderboard` is only available for "
+                                          f"server text channels.", silent=True)
 
     days_dict = {"Today": 1,
                  "This Week": 7,
