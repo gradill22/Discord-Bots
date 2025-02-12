@@ -110,8 +110,8 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
                       period: app_commands.Choice[str] = "This Week"):
     await interaction.response.defer()
     if interaction.guild is None:
-        interaction.followup.send(content=f"Sorry {interaction.user.mention}, but `/leaderboard` is only available for "
-                                          f"server text channels.", silent=True)
+        return await interaction.followup.send(content=f"Sorry {interaction.user.mention}, but `/leaderboard` is only "
+                                                       f"available for server text channels.", silent=True)
 
     days_dict = {"Today": 1,
                  "This Week": 7,
