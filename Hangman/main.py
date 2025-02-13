@@ -203,7 +203,7 @@ async def exchange(interaction: discord.Interaction, amount: int = None):
 
 @bot.tree.command(name="buy", description="Purchase your Hangman credits!")
 @app_commands.describe(num_credits="The number of credits to purchase with its corresponding price")
-@app_commands.choices(num_credits=[app_commands.Choice(name=f"{k:,}{options.CREDIT_EMOJI} (${v:,.2f})", value=k)
+@app_commands.choices(num_credits=[app_commands.Choice(name=f"{k:,}{options.CREDIT_EMOJI} (${v:,.2f})", value=str(k))
                                    for k, v in options.BUY_CREDITS.items()])
 async def buy_credits(interaction: discord.Interaction, num_credits: app_commands.Choice[float]):
     await interaction.response.defer(ephemeral=True)
@@ -214,7 +214,7 @@ async def buy_credits(interaction: discord.Interaction, num_credits: app_command
                                                        f"`/hangman` to claim your free {options.START_CREDITS:,}"
                                                        f"{options.CREDIT_EMOJI}", ephemeral=True)
 
-    player.credits += num_credits.value
+    player.credits += float(num_credits.value)
     return await interaction.followup.send(content=f"You successfully purchased {num_credits.name}!\n\n"
                                                    f"You now have {player.credits:,}{options.CREDIT_EMOJI}!",
                                            ephemeral=True)
