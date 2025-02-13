@@ -62,27 +62,27 @@ class HangmanButtonView(discord.ui.View):
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
-    @discord.ui.button(label=f"Buy Vowel ({options.VOWEL_COST:,} {options.CREDIT_EMOJI})", row=2, disabled=True,
-                       style=discord.ButtonStyle.green)
+    @discord.ui.button(label=f"Buy Vowel", row=2, disabled=True, style=discord.ButtonStyle.green)
     async def buy_vowel(self, interaction: discord.Interaction, button: discord.Button):
         if interaction.user == self.game.user:
             content, is_active = self.game.buy_vowel()
+            print(f"Vowel bought, button is{' not' if not is_active else ''} active")
             button.disabled = not is_active
             ephemeral = not (self.game.is_done and not self.game.is_wotd)
-            return await interaction.response.edit_message(content=content, view=None if self.game.is_done else self,
-                                                           ephemeral=ephemeral)
+            view = None if self.game.is_done else self
+            return await interaction.response.edit_message(content=content, view=view, ephemeral=ephemeral)
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
-    @discord.ui.button(label=f"Buy Consonant ({options.CONSONENT_COST:,} {options.CREDIT_EMOJI})", row=2, disabled=True,
-                       style=discord.ButtonStyle.green)
+    @discord.ui.button(label=f"Buy Consonant", row=2, disabled=True, style=discord.ButtonStyle.green)
     async def buy_consonant(self, interaction: discord.Interaction, button: discord.Button):
         if interaction.user == self.game.user:
-            content, is_active = self.game.buy_vowel()
+            content, is_active = self.game.buy_consonant()
+            print(f"Vowel bought, button is{' not' if not is_active else ''} active")
             button.disabled = not is_active
             ephemeral = not (self.game.is_done and not self.game.is_wotd)
-            return await interaction.response.edit_message(content=content, view=None if self.game.is_done else self,
-                                                           ephemeral=ephemeral)
+            view = None if self.game.is_done else self
+            return await interaction.response.edit_message(content=content, view=view, ephemeral=ephemeral)
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
