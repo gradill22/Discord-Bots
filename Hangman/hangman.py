@@ -267,7 +267,7 @@ class Hangman:
         if len(self.guessed_words) == 0:
             content.pop(-1)
         if price > 0:
-            content.append(f"You have {self.player.credits}{options.CREDIT_EMOJI} remaining!")
+            content.append(f"You have {self.player.credits} {options.CREDIT_EMOJI} remaining!")
 
         return "\n".join(content)
 
@@ -284,7 +284,7 @@ class Hangman:
         content = (f"🎉 **You Won!** The word{' of the day' if self.is_wotd else ''} was **{word}**!\n\n"
                    f"You got **{self.points:.{'0' if is_int else '1'}f}** points!\n\n{definitions}")
         if price > 0:
-            content += f"\n\nYou have {self.player.credits}{options.CREDIT_EMOJI} remaining!"
+            content += f"\n\nYou have {self.player.credits} {options.CREDIT_EMOJI} remaining!"
         return content.strip()
 
     def lose(self, price: int = 0):
@@ -299,7 +299,7 @@ class Hangman:
         content = (f"💀 **Game Over!** The word{' of the day' if self.is_wotd else ''} was **{word}.**\n\n"
                    f"You got **{self.points:.{'0' if is_int else '1'}f}** points.\n\n{definitions}")
         if price > 0:
-            content += f"\n\nYou have {self.player.credits}{options.CREDIT_EMOJI} remaining."
+            content += f"\n\nYou have {self.player.credits} {options.CREDIT_EMOJI} remaining."
         return content.strip()
 
     def push_guess(self, guess: str):

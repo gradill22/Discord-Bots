@@ -176,7 +176,7 @@ async def profile(interaction: discord.Interaction):
     content = "\n".join([
         f"Games played: {len(player.games)}",
         f"Points: {player.points}",
-        f"Credits: {player.credits}{options.CREDIT_EMOJI}"
+        f"Credits: {player.credits} {options.CREDIT_EMOJI}"
     ])
 
     return await interaction.followup.send(content=content, ephemeral=True)
@@ -198,12 +198,12 @@ async def exchange(interaction: discord.Interaction, amount: int = None):
     player.exchange(amount)
     return await interaction.followup.send(content=f"You exchanged your points for credits!\n\n"
                                                    f"Points: {player.points:,}\n"
-                                                   f"Credits: {player.credits:,}{options.CREDIT_EMOJI}", ephemeral=True)
+                                                   f"Credits: {player.credits:,} {options.CREDIT_EMOJI}", ephemeral=True)
 
 
 @bot.tree.command(name="buy", description="Purchase your Hangman credits!")
 @app_commands.describe(num_credits="The number of credits to purchase with its corresponding price")
-@app_commands.choices(num_credits=[app_commands.Choice(name=f"{k:,}{options.CREDIT_EMOJI} (${v:,.2f})", value=k)
+@app_commands.choices(num_credits=[app_commands.Choice(name=f"{k:,} {options.CREDIT_EMOJI} (${v:,.2f})", value=k)
                                    for k, v in options.BUY_CREDITS.items()])
 async def buy_credits(interaction: discord.Interaction, num_credits: app_commands.Choice[int]):
     await interaction.response.defer(ephemeral=True)
@@ -216,13 +216,9 @@ async def buy_credits(interaction: discord.Interaction, num_credits: app_command
 
     player.credits += num_credits.value
     return await interaction.followup.send(content=f"You successfully purchased {num_credits.name}!\n\n"
-                                                   f"You now have {player.credits:,}{options.CREDIT_EMOJI}!",
+                                                   f"You now have {player.credits:,} {options.CREDIT_EMOJI}!",
                                            ephemeral=True)
 
 
-def main():
-    bot.run(os.environ["DISCORD_TOKEN"])
-
-
 if __name__ == "__main__":
-    main()
+    bot.run(os.environ["DISCORD_TOKEN"])
