@@ -120,8 +120,9 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
         return await interaction.followup.send(content=f"Sorry {interaction.user.mention}, but `/leaderboard` is only "
                                                        f"available for server text channels.", silent=True)
 
-    n_days = int(period.value)
-    period = period.name
+    period = str(period.name if type(period) is app_commands.Choice else period)
+    n_days = options.LEADERBOARD_PERIODS[period]
+
     server = interaction.guild
     players = [player for player in PLAYERS if player.user in server.members]
     num_players, board = leaderboard_string(players, number_of_top_players, n_days)

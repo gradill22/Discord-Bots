@@ -28,6 +28,7 @@ LEADERBOARD_PERIODS: dict[str, int] = {"Today": 1,
                                        "This Week": 7,
                                        "This Month": 30,
                                        "All Time": 0}
+DEFAULT_LEADERBOARD_PERIOD: str = "This Week"
 LEADERBOARD_PLACES: dict[int, str] = {1: ":first_place:",
                                       2: ":second_place:",
                                       3: ":third_place:",
@@ -38,7 +39,6 @@ LEADERBOARD_PLACES: dict[int, str] = {1: ":first_place:",
                                       8: ":eight:",
                                       9: ":nine:",
                                       10: ":keycap_ten:"}
-DEFAULT_LEADERBOARD_PERIOD: app_commands.Choice[str] = app_commands.Choice(name="This Week", value=7)
 VOWEL_COST: int = 100
 CONSONENT_COST: int = 50
 BUY_CREDITS: dict[int, float] = {1_000: 1.0,
