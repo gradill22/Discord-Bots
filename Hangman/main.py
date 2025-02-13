@@ -1,6 +1,7 @@
 import os
 import math
 import discord
+import options
 from tabulate import tabulate
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -15,10 +16,17 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 # Game variables
 ACTIVE_GAMES: list[Hangman] = []
 PLAYERS: list[Player] = []
-MIN_LEADERBOARD_PLAYERS: int = 1
 
 
-def get_player(user: discord.User):
+def find_player(user: discord.User) -> Player | None:
+    global PLAYERS
+
+    for player in PLAYERS:
+        if user == player.user:
+            return player
+
+
+def get_player(user: discord.User) -> Player:
     global PLAYERS
 
     player = find_player(user)
@@ -30,34 +38,16 @@ def get_player(user: discord.User):
     return new_player
 
 
-def find_player(user: discord.User):
-    global PLAYERS
-
-    for player in PLAYERS:
-        if user == player.user:
-            return player
-
-
-def leaderboard_string(players: list[Player], num_players: int = 10, n_days: int = 0) -> tuple[int, str]:
+def leaderboard_string(players: list[Player], num_players: int = options.DEFAULT_NUM_TOP_PLAYERS,
+                       n_days: int = 0) -> tuple[int, str]:
     players = [player for player in players if player.num_games_since_days(n_days) > 0]
     players = sorted(players, key=lambda p: p.points(n_days), reverse=True)
     num_players = min(len(players), num_players)
 
-    place_emoji = {1: ":first_place:",
-                   2: ":second_place:",
-                   3: ":third_place:",
-                   4: ":four:",
-                   5: ":five:",
-                   6: ":six:",
-                   7: ":seven:",
-                   8: ":eight:",
-                   9: ":nine:",
-                   10: ":keycap_ten:"}
-
     board = ""
     m = math.floor(math.log10(max(len(players), 1))) + 1
     for i, player in enumerate(players[:num_players]):
-        place = place_emoji.get(i + 1, f"{i+1:{m}d}")
+        place = options.LEADERBOARD_PLACES.get(i + 1, f"{i+1:{m}d}")
         mention = player.user.mention
         points = player.points(n_days)
         points = format(points, f".{'0' if int(points) == float(points) else '1'}f") + " points"
@@ -69,11 +59,11 @@ def leaderboard_string(players: list[Player], num_players: int = 10, n_days: int
 
 
 # Update the list of active games to remove inactive games every 30 minutes
-@tasks.loop(minutes=30)
+@tasks.loop(minutes=options.ACTIVE_GAMES_UPDATE)
 async def update_active_games() -> None:
     global ACTIVE_GAMES
 
-    prune = [game for game in ACTIVE_GAMES if game.is_done()]
+    prune = [game for game in ACTIVE_GAMES if game.is_done]
     for game in prune:
         ACTIVE_GAMES.remove(game)
 
@@ -95,47 +85,6 @@ async def on_ready():
     update_active_games.start()
     await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.competing,
                                                         name="/hangman"))
-
-
-@bot.tree.command(name="leaderboard", description="A leaderboard for all Hangman players in your server!")
-@app_commands.describe(number_of_top_players="[Default 10] The number of players to include in the leaderboard",
-                       period="[Default \"This Week\"] How far back the leaderboard should be calculated")
-@app_commands.choices(period=[
-    app_commands.Choice(name="Today", value="Today"),
-    app_commands.Choice(name="This Week", value="This Week"),
-    app_commands.Choice(name="This Month", value="This Month"),
-    app_commands.Choice(name="All Time", value="All Time")
-])
-async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = 10,
-                      period: app_commands.Choice[str] = "This Week"):
-    await interaction.response.defer()
-    if interaction.guild is None:
-        return await interaction.followup.send(content=f"Sorry {interaction.user.mention}, but `/leaderboard` is only "
-                                                       f"available for server text channels.", silent=True)
-
-    days_dict = {"Today": 1,
-                 "This Week": 7,
-                 "This Month": 30,
-                 "All Time": 0}
-
-    period = str(period.name) if type(period) is app_commands.Choice else str(period)
-    n_days = days_dict[period]
-
-    server = interaction.guild
-    players = [player for player in PLAYERS if player.user in server.members]
-    num_players, board = leaderboard_string(players, number_of_top_players, n_days)
-
-    if num_players < MIN_LEADERBOARD_PLAYERS:
-        return await interaction.followup.send(content=f"Sorry {interaction.user.mention}, but there aren't enough "
-                                                       f"players in {server.name} to compile a leaderboard.\n\n"
-                                                       f"Minimum number of players: {MIN_LEADERBOARD_PLAYERS}\n"
-                                                       f"Number of {server.name}'s players {period.lower()}: "
-                                                       f"{num_players}"
-                                               )
-
-    board = f"**{server.name} Top {num_players:,} Leaderboard of {period.title()}**\n\n" + board
-
-    return await interaction.followup.send(content=board, silent=True)
 
 
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
@@ -160,6 +109,36 @@ async def hangman(interaction: discord.Interaction):
     return await interaction.followup.send(content=content, view=view, ephemeral=True)
 
 
+@bot.tree.command(name="leaderboard", description="A leaderboard for all Hangman players in your server!")
+@app_commands.describe(number_of_top_players="[Default 10] The number of players to include in the leaderboard",
+                       period="[Default \"This Week\"] How far back the leaderboard should be calculated")
+@app_commands.choices(period=[app_commands.Choice(name=k, value=v) for k, v in options.LEADERBOARD_PERIODS.items()])
+async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = options.DEFAULT_NUM_TOP_PLAYERS,
+                      period: app_commands.Choice[str] = options.DEFAULT_LEADERBOARD_PERIOD):
+    await interaction.response.defer(ephemeral=True)
+    if interaction.guild is None:
+        return await interaction.followup.send(content=f"Sorry {interaction.user.mention}, but `/leaderboard` is only "
+                                                       f"available for server text channels.", silent=True)
+
+    n_days = int(period.value)
+    period = period.name
+    server = interaction.guild
+    players = [player for player in PLAYERS if player.user in server.members]
+    num_players, board = leaderboard_string(players, number_of_top_players, n_days)
+
+    if num_players < options.MIN_LEADERBOARD_PLAYERS:
+        return await interaction.followup.send(content=f"Sorry {interaction.user.mention}, but there aren't enough "
+                                                       f"players in {server.name} to compile a leaderboard.\n\n"
+                                                       f"Minimum number of players: {options.MIN_LEADERBOARD_PLAYERS}\n"
+                                                       f"Number of {server.name}'s players {period.lower()}: "
+                                                       f"{num_players}"
+                                               )
+
+    board = f"**{server.name} Top {num_players:,} Leaderboard of {period.title()}**\n\n" + board
+
+    return await interaction.followup.send(content=board, silent=True)
+
+
 @bot.tree.command(name="history", description="A general history of your Hangman games!")
 @app_commands.describe(num_games="[Default 5] The last number of games to show a history of")
 async def history(interaction: discord.Interaction, num_games: int = 5):
@@ -182,6 +161,62 @@ async def history(interaction: discord.Interaction, num_games: int = 5):
     return await interaction.followup.send(f"Your last {num_games} games:\n```\n{table}\n```\n"
                                            f"Record: {wins}-{num_games - wins}\n"
                                            f"Total points: {total_points}", ephemeral=True)
+
+
+@bot.tree.command(name="profile", description="See an overview of your Hangman profile!")
+async def profile(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    player = find_player(interaction.user)
+    if player is None:
+        return await interaction.followup.send(content=f"You are not an active Hangman player. You can become one by "
+                                                       f"playing your first game with `/hangman`!", ephemeral=True)
+
+    content = "\n".join([
+        f"Games played: {len(player.games)}",
+        f"Points: {player.points}",
+        f"Credits: {player.credits}{options.CREDIT_EMOJI}"
+    ])
+
+    return await interaction.followup.send(content=content, ephemeral=True)
+
+
+@bot.tree.command(name="exchange", description=f"Exchange your points for credits "
+                                               f"{options.POINTS_TO_CREDITS.numerator:,}:"
+                                               f"{options.POINTS_TO_CREDITS.denominator:,}!")
+@app_commands.describe(amount=f"[Optional] The number of points you want to exchange for credits")
+async def exchange(interaction: discord.Interaction, amount: int = None):
+    await interaction.response.defer(ephemeral=True)
+
+    player = find_player(interaction.user)
+    if player is None:
+        return await interaction.followup.send(content=f"You are not an active player. Please start a game using "
+                                                       f"`/hangman` to claim your free {options.START_CREDITS:,}"
+                                                       f"{options.CREDIT_EMOJI}", ephemeral=True)
+
+    player.exchange(amount)
+    return await interaction.followup.send(content=f"You exchanged your points for credits!\n\n"
+                                                   f"Points: {player.points:,}\n"
+                                                   f"Credits: {player.credits:,}{options.CREDIT_EMOJI}", ephemeral=True)
+
+
+@bot.tree.command(name="buy", description="Purchase your Hangman credits!")
+@app_commands.describe(num_credits="The number of credits to purchase with its corresponding price")
+@app_commands.choices(num_credits=[app_commands.Choice(name=f"{k:,}{options.CREDIT_EMOJI} (${v:,.2f})", value=k)
+                                   for k, v in options.BUY_CREDITS.items()])
+async def buy_credits(interaction: discord.Interaction, num_credits: app_commands.Choice[float]):
+    await interaction.response.defer(ephemeral=True)
+
+    player = find_player(interaction.user)
+    if player is None:
+        return await interaction.followup.send(content=f"You are not an active player. Please start a game using "
+                                                       f"`/hangman` to claim your free {options.START_CREDITS:,}"
+                                                       f"{options.CREDIT_EMOJI}", ephemeral=True)
+
+    player.credits += num_credits.value
+    return await interaction.followup.send(content=f"You successfully purchased {num_credits.name}!\n\n"
+                                                   f"You now have {player.credits:,}{options.CREDIT_EMOJI}!",
+                                           ephemeral=True)
 
 
 def main():
