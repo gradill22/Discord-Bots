@@ -62,8 +62,8 @@ class HangmanButtonView(discord.ui.View):
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
-    @discord.ui.button(label=f"Buy Vowel ({options.VOWEL_COST:,})", row=2, disabled=True,
-                       style=discord.ButtonStyle.green, emoji=options.CREDIT_EMOJI)
+    @discord.ui.button(label=f"Buy Vowel ({options.VOWEL_COST:,} {options.CREDIT_EMOJI})", row=2, disabled=True,
+                       style=discord.ButtonStyle.green)
     async def buy_vowel(self, interaction: discord.Interaction, button: discord.Button):
         if interaction.user == self.game.user:
             content, is_active = self.game.buy_vowel()
@@ -74,8 +74,8 @@ class HangmanButtonView(discord.ui.View):
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
-    @discord.ui.button(label=f"Buy Consonant ({options.CONSONENT_COST:,})", row=2, disabled=True,
-                       style=discord.ButtonStyle.green, emoji=options.CREDIT_EMOJI)
+    @discord.ui.button(label=f"Buy Consonant ({options.CONSONENT_COST:,} {options.CREDIT_EMOJI})", row=2, disabled=True,
+                       style=discord.ButtonStyle.green)
     async def buy_consonant(self, interaction: discord.Interaction, button: discord.Button):
         if interaction.user == self.game.user:
             content, is_active = self.game.buy_vowel()
