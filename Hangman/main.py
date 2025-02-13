@@ -112,7 +112,7 @@ async def hangman(interaction: discord.Interaction):
 @bot.tree.command(name="leaderboard", description="A leaderboard for all Hangman players in your server!")
 @app_commands.describe(number_of_top_players="[Default 10] The number of players to include in the leaderboard",
                        period="[Default \"This Week\"] How far back the leaderboard should be calculated")
-@app_commands.choices(period=[app_commands.Choice(name=k, value=v) for k, v in options.LEADERBOARD_PERIODS.items()])
+@app_commands.choices(period=[app_commands.Choice(name=k, value=k) for k in options.LEADERBOARD_PERIODS.keys()])
 async def leaderboard(interaction: discord.Interaction, number_of_top_players: int = options.DEFAULT_NUM_TOP_PLAYERS,
                       period: app_commands.Choice[str] = options.DEFAULT_LEADERBOARD_PERIOD):
     await interaction.response.defer(ephemeral=True)
