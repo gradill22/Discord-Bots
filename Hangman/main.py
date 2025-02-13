@@ -205,7 +205,7 @@ async def exchange(interaction: discord.Interaction, amount: int = None):
 @app_commands.describe(num_credits="The number of credits to purchase with its corresponding price")
 @app_commands.choices(num_credits=[app_commands.Choice(name=f"{k:,}{options.CREDIT_EMOJI} (${v:,.2f})", value=k)
                                    for k, v in options.BUY_CREDITS.items()])
-async def buy_credits(interaction: discord.Interaction, num_credits: app_commands.Choice[str]):
+async def buy_credits(interaction: discord.Interaction, num_credits: app_commands.Choice[int]):
     await interaction.response.defer(ephemeral=True)
 
     player = find_player(interaction.user)
