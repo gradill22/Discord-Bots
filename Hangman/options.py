@@ -50,14 +50,13 @@ BUY_CREDITS: dict[int, float] = {1_000: 1.0,
 
 def get_db_connection():
     try:
-        connection = mysql.connector.connect(
+        return mysql.connector.connect(
             host=os.environ.get("MYSQLHOST"),
             user=os.environ.get("MYSQLUSER"),
             password=os.environ.get("MYSQLPASSWORD"),
             database=os.environ.get("MYSQLDATABASE"),
             port=os.environ.get("MYSQLPORT")
         )
-        return connection
     except Error as e:
         print(f"Error connecting to MySQL: {e}")
         return None
