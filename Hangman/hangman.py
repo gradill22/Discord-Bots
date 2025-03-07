@@ -5,6 +5,8 @@ import discord
 import options
 import pandas as pd
 from random_word import Wordnik
+import mysql
+from mysql.connector import Error
 
 
 class InputLetterGuess(discord.ui.Modal):
@@ -271,9 +273,9 @@ class Hangman:
                         self.lives,
                         " ".join([options.MISSING_LETTER_EMOJI if letter in string.ascii_uppercase else letter
                                   for letter in self.word]),
-                        json.dumps([]),
-                        json.dumps([]),
-                        json.dumps([]),
+                        json.dumps([]),  # empty guessed letters
+                        json.dumps([]),  # empty guessed words
+                        json.dumps([]),  # empty wrong letters
                         json.dumps(self.definitions)
                     )
                 )

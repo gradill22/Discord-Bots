@@ -6,6 +6,8 @@ from tabulate import tabulate
 from discord import app_commands
 from discord.ext import commands
 from hangman import Hangman, Player
+import mysql
+from mysql.connector import Error
 
 
 intents = discord.Intents.default()
@@ -59,15 +61,16 @@ async def on_ready():
         cursor = conn.cursor()
         try:
             cursor.execute("CREATE TABLE players (id INT AUTO_INCREMENT PRIMARY KEY, discord_id BIGINT UNIQUE NOT "
-                           "NULL, points DECIMAL(10,1) DEFAULT 0, credits INT DEFAULT 500)")
+                           "NULL, points DECIMAL(10,1) DEFAULT 0, credits INT DEFAULT 500);")
             cursor.execute("CREATE TABLE games (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT, channel_id BIGINT "
                            "NOT NULL, word VARCHAR(255) NOT NULL, is_wotd BOOLEAN DEFAULT FALSE, points DECIMAL(10,"
                            "1) DEFAULT 0, lives INT DEFAULT 5, is_done BOOLEAN DEFAULT FALSE, progress VARCHAR(255) "
                            "NOT NULL, guessed_letters JSON, guessed_words JSON, wrong_letters JSON, definitions JSON, "
                            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (player_id) REFERENCES "
-                           "players(id))")
+                           "players(id));")
             cursor.execute("CREATE TABLE guild_members (guild_id BIGINT NOT NULL, user_id BIGINT NOT NULL, PRIMARY "
-                           "KEY (guild_id, user_id))")
+                           "KEY (guild_id, user_id));")
+            conn.commit()
         finally:
             cursor.close()
             conn.close()
