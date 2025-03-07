@@ -5,7 +5,6 @@ import discord
 import options
 import pandas as pd
 from random_word import Wordnik
-from datetime import datetime, timezone
 
 
 class InputLetterGuess(discord.ui.Modal):
@@ -62,27 +61,27 @@ class HangmanButtonView(discord.ui.View):
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
-    @discord.ui.button(label=f"Buy Vowel", row=2, disabled=True, style=discord.ButtonStyle.green)
+    @discord.ui.button(label=f"Buy Vowel", row=2, style=discord.ButtonStyle.green, custom_id="vowel_button")
     async def buy_vowel(self, interaction: discord.Interaction, button: discord.Button):
         if interaction.user == self.game.user:
             content, is_active = self.game.buy_vowel()
-            print(f"Vowel bought, button is{' not' if not is_active else ''} active")
             button.disabled = not is_active
-            ephemeral = not (self.game.is_done and not self.game.is_wotd)
             view = None if self.game.is_done else self
-            return await interaction.response.edit_message(content=content, view=view, ephemeral=ephemeral)
+            if self.game.player.credits <= options.CONSONENT_COST:
+                self.children[3].disabled = True
+            return await interaction.response.edit_message(content=content, view=view)
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
-    @discord.ui.button(label=f"Buy Consonant", row=2, disabled=True, style=discord.ButtonStyle.green)
+    @discord.ui.button(label=f"Buy Consonant", row=2, style=discord.ButtonStyle.green, custom_id="consonant_button")
     async def buy_consonant(self, interaction: discord.Interaction, button: discord.Button):
         if interaction.user == self.game.user:
             content, is_active = self.game.buy_consonant()
-            print(f"Vowel bought, button is{' not' if not is_active else ''} active")
             button.disabled = not is_active
-            ephemeral = not (self.game.is_done and not self.game.is_wotd)
             view = None if self.game.is_done else self
-            return await interaction.response.edit_message(content=content, view=view, ephemeral=ephemeral)
+            if self.game.player.credits <= options.VOWEL_COST:
+                self.children[2].disabled = True
+            return await interaction.response.edit_message(content=content, view=view)
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
@@ -97,118 +96,326 @@ class HangmanButtonView(discord.ui.View):
 
 class Player:
     def __init__(self, user: discord.User):
-        self.user: discord.User = user
-        self.games: list[Hangman] = []
-        self.points: int = 0
-        self.credits: int = options.START_CREDITS
+        self.user = user
+        self.discord_id = user.id
+        self._load_or_create_player()
+
+    def _load_or_create_player(self):
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("SELECT id, points, credits FROM players WHERE discord_id = %s", (self.discord_id,))
+                result = cursor.fetchone()
+                if result:
+                    self.id, self.points, self.credits = result
+                else:
+                    cursor.execute(
+                        "INSERT INTO players (discord_id, points, credits) VALUES (%s, %s, %s)",
+                        (self.discord_id, 0, options.START_CREDITS)
+                    )
+                    conn.commit()
+                    self.id = cursor.lastrowid
+                    self.points = 0
+                    self.credits = options.START_CREDITS
+            finally:
+                cursor.close()
+                conn.close()
 
     def has_done_wotd(self) -> bool:
-        wotd = json.loads(Wordnik().word_of_the_day())
-        wotd = Hangman.process_word(wotd["word"])
-        for game in self.games:
-            if game.word == wotd and game.is_wotd:
-                return True
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                wotd = json.loads(Wordnik().word_of_the_day())["word"]
+                wotd = self.process_word(wotd)
+                cursor.execute(
+                    "SELECT COUNT(*) FROM games WHERE player_id = %s AND word = %s AND is_wotd = TRUE",
+                    (self.id, wotd)
+                )
+                return cursor.fetchone()[0] > 0
+            finally:
+                cursor.close()
+                conn.close()
         return False
 
     def has_active_game(self) -> bool:
-        return len(self.games) > 0 and not self.games[-1].is_done  # is the most recent game still active?
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM games WHERE player_id = %s AND is_done = FALSE",
+                    (self.id,)
+                )
+                return cursor.fetchone()[0] > 0
+            finally:
+                cursor.close()
+                conn.close()
+        return False
 
-    def points(self, days: int = 0) -> int:
-        if days > 0:
-            now = datetime.now(timezone.utc)
-            return sum(game.points for game in self.games if (now - game.datetime).days <= days)
+    def points(self, days: int = 0) -> float:
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                if days > 0:
+                    cursor.execute(
+                        "SELECT SUM(points) FROM games WHERE player_id = %s AND created_at >= DATE_SUB(NOW(), "
+                        "INTERVAL %s DAY)",
+                        (self.id, days)
+                    )
+                else:
+                    cursor.execute("SELECT points FROM players WHERE id = %s", (self.id,))
+                result = cursor.fetchone()[0]
+                return result if result else 0
+            finally:
+                cursor.close()
+                conn.close()
+        return 0
 
-        return self.points
-
-    def num_games_since_days(self, days: int):
-        now = datetime.now(timezone.utc)
-        return sum((now - game.datetime).days <= days for game in self.games)
+    def num_games_since_days(self, days: int) -> int:
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM games WHERE player_id = %s AND created_at >= DATE_SUB(NOW(), "
+                    "INTERVAL %s DAY)",
+                    (self.id, days)
+                )
+                return cursor.fetchone()[0]
+            finally:
+                cursor.close()
+                conn.close()
+        return 0
 
     def last_n_games(self, n: int = 5) -> pd.DataFrame:
-        n = min(n, len(self.games))
-        df = pd.DataFrame(columns=["Word", "Result", "Points"])
-        for game in self.games[-n::]:
-            word = game.word.title()
-            result = "Win" if game.is_win() else "Loss"
-            points = game.points
-            df.loc[len(df), :] = (word, result, points)
-
-        return df
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "SELECT word, is_done, lives, points FROM games WHERE player_id = %s ORDER BY created_at DESC "
+                    "LIMIT %s",
+                    (self.id, n)
+                )
+                games = cursor.fetchall()
+                df = pd.DataFrame(columns=["Word", "Result", "Points"])
+                for i, (word, is_done, lives, points) in enumerate(games):
+                    result = "Win" if is_done and lives > 0 else "Loss"
+                    df.loc[i] = (word.title(), result, points)
+                return df
+            finally:
+                cursor.close()
+                conn.close()
+        return pd.DataFrame(columns=["Word", "Result", "Points"])
 
     def exchange(self, amount: int = None) -> None:
-        if amount is None and self.points > 0:
-            self.credits += math.ceil(self.points * options.POINTS_TO_CREDITS)
-            self.points = 0
-        elif 0 < amount <= self.points:
-            self.credits += math.ceil(amount * options.POINTS_TO_CREDITS)
-            self.points -= amount
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                self._load_or_create_player()
+                if amount is None and self.points > 0:
+                    credits_to_add = math.ceil(self.points * options.POINTS_TO_CREDITS)
+                    cursor.execute(
+                        "UPDATE players SET points = 0, credits = credits + %s WHERE id = %s",
+                        (credits_to_add, self.id)
+                    )
+                elif 0 < amount <= self.points:
+                    credits_to_add = math.ceil(amount * options.POINTS_TO_CREDITS)
+                    cursor.execute(
+                        "UPDATE players SET points = points - %s, credits = credits + %s WHERE id = %s",
+                        (amount, credits_to_add, self.id)
+                    )
+                conn.commit()
+                self._load_or_create_player()
+            finally:
+                cursor.close()
+                conn.close()
+
+    @staticmethod
+    def process_word(word: str) -> str:
+        return str(word).strip().upper()
 
 
 class Hangman:
     def __init__(self, player: Player, channel: discord.TextChannel, lives: int = options.NUM_LIVES):
         self.player = player
         self.channel = channel
-        self.user = self.player.user
+        self.user = player.user
         self.word, self.definitions, self.is_wotd = self.get_word()
         self.view = HangmanButtonView(self)
-        self.moves: list[tuple[str, int]] = list()
-        self.guessed_letters = list()
-        self.guessed_words = list()
-        self.wrong_letters = list()
         self.lives = lives
-        self.is_done = False
-        self.progress = " ".join([options.MISSING_LETTER_EMOJI if letter in string.ascii_uppercase else letter
-                                  for letter in self.word])
-        self.title = "**H_NGM_N**\n__WORD OF THE DAY__" if self.is_wotd else "**H_NGM_N**"
         self.points = 0
-        self.datetime = datetime.now(timezone.utc)
-        self.player.games.append(self)
+        self.is_done = False
+        self._save_new_game()
 
-    @staticmethod
-    def process_word(word: str) -> str:
-        return str(word).strip().upper()
+    def _save_new_game(self):
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO games (player_id, channel_id, word, is_wotd, lives, progress, 
+                    guessed_letters, guessed_words, wrong_letters, definitions)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        self.player.id,
+                        self.channel.id,
+                        self.word,
+                        self.is_wotd,
+                        self.lives,
+                        " ".join([options.MISSING_LETTER_EMOJI if letter in string.ascii_uppercase else letter
+                                  for letter in self.word]),
+                        json.dumps([]),
+                        json.dumps([]),
+                        json.dumps([]),
+                        json.dumps(self.definitions)
+                    )
+                )
+                conn.commit()
+                self.id = cursor.lastrowid
+            finally:
+                cursor.close()
+                conn.close()
+
+    def _load_game_state(self):
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    SELECT word, lives, is_done, progress, guessed_letters, guessed_words, 
+                           wrong_letters, definitions, points, is_wotd
+                    FROM games WHERE id = %s
+                    """,
+                    (self.id,)
+                )
+                result = cursor.fetchone()
+                if result:
+                    (self.word, self.lives, self.is_done, self.progress, guessed_letters,
+                     guessed_words, wrong_letters, definitions, self.points, self.is_wotd) = result
+                    self.guessed_letters = json.loads(guessed_letters)
+                    self.guessed_words = json.loads(guessed_words)
+                    self.wrong_letters = json.loads(wrong_letters)
+                    self.definitions = json.loads(definitions)
+            finally:
+                cursor.close()
+                conn.close()
+
+    def _update_game_state(self):
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    UPDATE games 
+                    SET lives = %s, is_done = %s, progress = %s, guessed_letters = %s,
+                        guessed_words = %s, wrong_letters = %s, points = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        self.lives,
+                        self.is_done,
+                        self.progress,
+                        json.dumps(self.guessed_letters),
+                        json.dumps(self.guessed_words),
+                        json.dumps(self.wrong_letters),
+                        self.points,
+                        self.id
+                    )
+                )
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
 
     def get_word(self) -> tuple[str, list, bool]:
         wordnik = Wordnik()
         do_wotd = not self.player.has_done_wotd()
         if do_wotd:
             wotd = json.loads(wordnik.word_of_the_day())
-            word = Hangman.process_word(wotd["word"])
+            word = self.player.process_word(wotd["word"])
             definitions = wotd["definitions"]
             return word, definitions, do_wotd
-        word = Hangman.process_word(wordnik.get_random_word())
+        word = self.player.process_word(wordnik.get_random_word())
         return word, list(), do_wotd
 
     def vowels_left(self) -> int:
-        num_vowels = sum(vowel in self.word and vowel not in self.progress for vowel in options.VOWELS)
-        return num_vowels or int("Y" in self.word)  # Y is a vowel only when there are no other vowels in the word
+        self._load_game_state()
+        num_vowels = sum(vowel in self.word for vowel in options.VOWELS)
+        if num_vowels == 0:
+            return "Y" not in self.progress
+        num_vowels -= sum(letter in options.VOWELS for letter in self.guessed_letters)
+        return num_vowels
 
     def buy_vowel(self) -> tuple[str, bool]:
+        self._load_game_state()
         if self.vowels_left() == 0:
             return self.current_progress()[0], False
         self.player.credits -= options.VOWEL_COST
-        for i, letter in enumerate(self.progress):
-            if letter == options.MISSING_LETTER_EMOJI and self.word[i] in options.VOWELS:
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "UPDATE players SET credits = %s WHERE id = %s",
+                    (self.player.credits, self.player.id)
+                )
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
+
+        temp = "@"
+        progress = self.progress.replace(options.MISSING_LETTER_EMOJI, temp)
+        for i, letter in enumerate(progress.split()):
+            if letter == temp and self.word[i] in options.VOWELS:
                 content = self.update_progress(self.word[i], options.POINTS["LETTER"]["VOWEL"]["CORRECT"])
                 return content, self.vowels_left() > 0 and self.player.credits >= options.VOWEL_COST
         return "Something weird happened here...", False
 
     def consonants_left(self) -> int:
+        self._load_game_state()
         num_consonants = sum(c in options.CONSONANTS for c in set(self.word) if c not in self.progress)
-        num_vowels = sum(vowel in self.word and vowel not in self.progress for vowel in options.VOWELS)
-        return num_consonants - int(num_vowels == 0)  # If Y is a vowel, ignore the Y
+        num_vowels = self.vowels_left()
+        return num_consonants - int(num_vowels == 0)
 
     def buy_consonant(self) -> tuple[str, bool]:
+        self._load_game_state()
         if self.consonants_left() == 0:
             return self.current_progress()[0], False
-        self.player.credits -= options.VOWEL_COST
-        for i, letter in enumerate(self.progress):
-            if letter == options.MISSING_LETTER_EMOJI and self.word[i] in options.VOWELS:
+        self.player.credits -= options.CONSONENT_COST
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "UPDATE players SET credits = %s WHERE id = %s",
+                    (self.player.credits, self.player.id)
+                )
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
+
+        temp = "@"
+        progress = self.progress.replace(options.MISSING_LETTER_EMOJI, temp)
+        for i, letter in enumerate(progress.split()):
+            if letter == temp and self.word[i] in options.CONSONANTS:
                 content = self.update_progress(self.word[i], options.POINTS["LETTER"]["CONSONANT"]["CORRECT"])
                 return content, self.consonants_left() > 0 and self.player.credits >= options.CONSONENT_COST
         return "Something weird happened here...", False
 
     def format_definitions(self) -> str:
+        self._load_game_state()
+
         def format_definition(definition: dict) -> str:
             return f"*{definition['partOfSpeech']}.* {definition['text']}"
 
@@ -216,34 +423,40 @@ class Hangman:
             return ""
         if len(self.definitions) == 1:
             return f"Definition:\n{format_definition(self.definitions[0])}"
-
-        return "\n".join([f"Definitions:"] + [f"{i+1}) {format_definition(d)}" for i, d in enumerate(self.definitions)])
+        return "\n".join(
+            [f"Definitions:"] + [f"{i + 1}) {format_definition(d)}" for i, d in enumerate(self.definitions)])
 
     def quit_game(self) -> None:
-        self.player.games.remove(self)
-        del self
+        self._load_game_state()
+        self.is_done = True
+        self._update_game_state()
 
     def start_game(self):
-        content = [self.title + "\n", self.progress + "\n",
-                   " ".join([options.LIVES_EMOJI] * self.lives),
-                   "\nGuess a letter by replying to this message!"]
-        content = "\n".join(content)
-
+        self._load_game_state()
+        title = "**H_NGM_N**\n__WORD OF THE DAY__" if self.is_wotd else "**H_NGM_N**"
+        content = "\n".join([
+            title + "\n",
+            self.progress + "\n",
+            " ".join([options.LIVES_EMOJI] * self.lives),
+            "\nGuess a letter by replying to this message!"
+        ])
         return content, self.view
 
     def update_progress(self, guess: str, price: int = 0) -> str:
-        self.moves.append((guess, price))
+        self._load_game_state()
         if len(guess) == 1:
             is_vowel = guess in options.VOWELS if sum(self.word.count(v) for v in options.VOWELS) > 0 else guess == "Y"
             self.guessed_letters.append(guess)
             if guess not in self.word:
                 self.wrong_letters.append(guess)
-                self.points += options.POINTS["LETTER"]["VOWEL" if is_vowel else "CONSONANT"]["INCORRECT"]
+                if price == 0:
+                    self.points += options.POINTS["LETTER"]["VOWEL" if is_vowel else "CONSONANT"]["INCORRECT"]
                 self.lives -= 1
                 if self.lives == 0:
                     return self.lose(price)
-            else:
-                self.points += options.POINTS["LETTER"]["VOWEL" if is_vowel else "CONSONANT"]["CORRECT"] * self.word.count(guess)
+            elif price == 0:
+                self.points += options.POINTS["LETTER"]["VOWEL" if is_vowel else "CONSONANT"][
+                                   "CORRECT"] * self.word.count(guess)
             self.progress = " ".join([letter if letter in self.guessed_letters or letter not in string.ascii_uppercase
                                       else options.MISSING_LETTER_EMOJI for letter in self.word])
             if not self.progress.count(options.MISSING_LETTER_EMOJI):
@@ -258,10 +471,13 @@ class Hangman:
             if self.lives == 0:
                 return self.lose(price)
 
-        content = [self.title + "\n", self.progress + "\n",
-                   " ".join([options.LIVES_EMOJI] * self.lives),
-                   f"Used letters: {', '.join(sorted(self.wrong_letters))}",
-                   f"Used words: {', '.join(word.title() for word in sorted(self.guessed_words))}"]
+        content = [
+            "**H_NGM_N**\n__WORD OF THE DAY__" if self.is_wotd else "**H_NGM_N**" + "\n",
+            self.progress + "\n",
+            " ".join([options.LIVES_EMOJI] * self.lives),
+            f"Used letters: {', '.join(sorted(self.wrong_letters))}",
+            f"Used words: {', '.join(word.title() for word in sorted(self.guessed_words))}"
+        ]
         if len(self.wrong_letters) == 0:
             content.pop(-2)
         if len(self.guessed_words) == 0:
@@ -269,15 +485,30 @@ class Hangman:
         if price > 0:
             content.append(f"You have {self.player.credits} {options.CREDIT_EMOJI} remaining!")
 
+        self._update_game_state()
         return "\n".join(content)
 
     def win(self, price: int = 0) -> str:
+        self._load_game_state()
         self.is_done = True
         self.points += options.POINTS["WIN"]
         self.points += options.POINTS["LIVES"] * self.lives
-        self.points -= price
         self.points *= options.POINTS["WOTD"] if self.is_wotd else 1
         self.player.points += self.points
+
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "UPDATE players SET points = points + %s WHERE id = %s",
+                    (self.points, self.player.id)
+                )
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
+
         word = self.word.title()
         definitions = self.format_definitions()
         is_int = int(self.points) == float(self.points)
@@ -285,14 +516,30 @@ class Hangman:
                    f"You got **{self.points:.{'0' if is_int else '1'}f}** points!\n\n{definitions}")
         if price > 0:
             content += f"\n\nYou have {self.player.credits} {options.CREDIT_EMOJI} remaining!"
+
+        self._update_game_state()
         return content.strip()
 
     def lose(self, price: int = 0):
+        self._load_game_state()
         self.is_done = True
         self.points += options.POINTS["LOSS"]
-        self.points -= price
         self.points *= options.POINTS["WOTD"] if self.is_wotd else 1
         self.player.points += self.points
+
+        conn = options.get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    "UPDATE players SET points = points + %s WHERE id = %s",
+                    (self.points, self.player.id)
+                )
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
+
         word = self.word.title()
         definitions = self.format_definitions()
         is_int = int(self.points) == float(self.points)
@@ -300,28 +547,33 @@ class Hangman:
                    f"You got **{self.points:.{'0' if is_int else '1'}f}** points.\n\n{definitions}")
         if price > 0:
             content += f"\n\nYou have {self.player.credits} {options.CREDIT_EMOJI} remaining."
+
+        self._update_game_state()
         return content.strip()
 
     def push_guess(self, guess: str):
-        guess = Hangman.process_word(guess)
-
+        self._load_game_state()
+        guess = self.player.process_word(guess)
         if len(guess) == 1 and guess in self.guessed_letters:
             return
         if guess in self.guessed_words:
             return
-
         return self.update_progress(guess)
 
     def current_progress(self) -> tuple[str, discord.ui.View] | tuple[str, None]:
+        self._load_game_state()
         if self.is_win():
-            return self.win(self.moves[-1][-1]), None
+            return self.win(self.points), None
         if self.lives == 0:
-            return self.lose(self.moves[-1][-1]), None
+            return self.lose(self.points), None
 
-        content = [self.title + "\n", self.progress + "\n",
-                   " ".join([options.LIVES_EMOJI] * self.lives),
-                   f"Used letters: {', '.join(sorted(self.wrong_letters))}",
-                   f"Used words: {', '.join(word.title() for word in sorted(self.guessed_words))}"]
+        content = [
+            "**H_NGM_N**\n__WORD OF THE DAY__" if self.is_wotd else "**H_NGM_N**" + "\n",
+            self.progress + "\n",
+            " ".join([options.LIVES_EMOJI] * self.lives),
+            f"Used letters: {', '.join(sorted(self.wrong_letters))}",
+            f"Used words: {', '.join(word.title() for word in sorted(self.guessed_words))}"
+        ]
         if len(self.wrong_letters) == 0:
             content.pop(-2)
         if len(self.guessed_words) == 0:
@@ -330,15 +582,17 @@ class Hangman:
         return "\n".join(content), self.view
 
     def is_win(self):
+        self._load_game_state()
         return self.is_done and self.lives > 0
 
     def __str__(self):
-        return "\n".join([f"Player: {self.user.name}",
-                          f"Server: {self.channel.guild.name}",
-                          f"Channel: {self.channel.name}",
-                          f"Word: {self.word.title()}",
-                          f"Is Word of the Day: {self.is_wotd}",
-                          f"Points: {self.points}",
-                          f"UTC Datetime: {self.datetime}",
-                          f"Is Done: {self.is_done}"]
-                         )
+        self._load_game_state()
+        return "\n".join([
+            f"Player: {self.user.name}",
+            f"Server: {self.channel.guild.name}",
+            f"Channel: {self.channel.name}",
+            f"Word: {self.word.title()}",
+            f"Is Word of the Day: {self.is_wotd}",
+            f"Points: {self.points}",
+            f"Is Done: {self.is_done}"
+        ])
