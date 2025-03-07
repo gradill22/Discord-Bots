@@ -234,7 +234,4 @@ async def exchange(interaction: discord.Interaction, amount: int = None):
 
 
 if __name__ == "__main__":
-    pprint(os.environ)
-    print("-" * 30)
-    pprint(os.environb)
-    # bot.run(os.environ["DISCORD_TOKEN"])
+    bot.run(os.environ["DISCORD_TOKEN"])
