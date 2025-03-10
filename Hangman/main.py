@@ -1,37 +1,18 @@
 import os
 import math
+import query
 import discord
 import options
-from pprint import pprint
 from tabulate import tabulate
 from discord import app_commands
 from discord.ext import commands
 from hangman import Hangman, Player
-import mysql
-from mysql.connector import Error
 
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="/", intents=intents)
-
-
-def find_player(user: discord.User) -> Player | None:
-    conn = options.get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT discord_id FROM players WHERE discord_id = %s", (user.id,))
-            return Player(user) if cursor.fetchone() else None
-        finally:
-            cursor.close()
-            conn.close()
-    return None
-
-
-def get_player(user: discord.User) -> Player:
-    return Player(user)
 
 
 def leaderboard_string(players: list[Player], num_players: int = options.DEFAULT_NUM_TOP_PLAYERS,
@@ -56,26 +37,6 @@ def leaderboard_string(players: list[Player], num_players: int = options.DEFAULT
 
 @bot.event
 async def on_ready():
-    # Add tables to SQL database
-    conn = options.get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute("CREATE TABLE players (id INT AUTO_INCREMENT PRIMARY KEY, discord_id BIGINT UNIQUE NOT "
-                           "NULL, points DECIMAL(10,1) DEFAULT 0, credits INT DEFAULT 500);")
-            cursor.execute("CREATE TABLE games (id INT AUTO_INCREMENT PRIMARY KEY, player_id INT, channel_id BIGINT "
-                           "NOT NULL, word VARCHAR(255) NOT NULL, is_wotd BOOLEAN DEFAULT FALSE, points DECIMAL(10,"
-                           "1) DEFAULT 0, lives INT DEFAULT 5, is_done BOOLEAN DEFAULT FALSE, progress VARCHAR(255) "
-                           "NOT NULL, guessed_letters JSON, guessed_words JSON, wrong_letters JSON, definitions JSON, "
-                           "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (player_id) REFERENCES "
-                           "players(id));")
-            cursor.execute("CREATE TABLE guild_members (guild_id BIGINT NOT NULL, user_id BIGINT NOT NULL, PRIMARY "
-                           "KEY (guild_id, user_id));")
-            conn.commit()
-        finally:
-            cursor.close()
-            conn.close()
-
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
@@ -90,35 +51,24 @@ async def on_ready():
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
 async def hangman(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    player = get_player(interaction.user)
+    player = Player(interaction.user)
 
-    conn = options.get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                "SELECT id, channel_id FROM games WHERE player_id = %s AND is_done = FALSE",
-                (player.id,)
-            )
-            result = cursor.fetchone()
-            if result:
-                game_id, active_channel_id = result
-                if active_channel_id == interaction.channel.id:
-                    game = Hangman(player, interaction.channel)
-                    game.id = game_id
-                    content, view = game.current_progress()
-                    return await interaction.followup.send(content=content, view=view, ephemeral=True)
-                game_channel = bot.get_channel(active_channel_id)
-                game_server = game_channel.guild
-                content = f"You already have an active game in {game_server.name}'s {game_channel.jump_url}."
-                return await interaction.followup.send(content=content, ephemeral=True)
-
-            new_game = Hangman(player, interaction.channel)
-            content, view = new_game.start_game()
+    result = query.execute(f"SELECT id, channel_id FROM games WHERE player_id = {player.id} AND is_done = FALSE")
+    if result:
+        game_id, active_channel_id = result
+        if active_channel_id == interaction.channel.id:
+            game = Hangman(player, interaction.channel)
+            game.id = game_id
+            content, view = game.current_progress()
             return await interaction.followup.send(content=content, view=view, ephemeral=True)
-        finally:
-            cursor.close()
-            conn.close()
+        game_channel = bot.get_channel(active_channel_id)
+        game_server = game_channel.guild
+        content = f"You already have an active game in {game_server.name}'s {game_channel.jump_url}."
+        return await interaction.followup.send(content=content, ephemeral=True)
+
+    new_game = Hangman(player, interaction.channel)
+    content, view = new_game.start_game()
+    return await interaction.followup.send(content=content, view=view, ephemeral=True)
 
 
 @bot.tree.command(name="leaderboard", description="A leaderboard for all Hangman players in your server!")
@@ -135,11 +85,9 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
     period = str(period.name if type(period) is app_commands.Choice else period)
     n_days = options.LEADERBOARD_PERIODS[period]
 
-    conn = options.get_db_connection()
-    if conn:
-        cursor = conn.cursor()
-        try:
-            query = """
+    with query.get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            query_ = """
                 SELECT p.discord_id, SUM(g.points) as total_points
                 FROM players p
                 LEFT JOIN games g ON p.id = g.player_id
@@ -149,9 +97,9 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
             """
             params = [interaction.guild.id]
             if n_days > 0:
-                query += " AND g.created_at >= DATE_SUB(NOW(), INTERVAL %s DAY)"
+                query_ += " AND g.created_at >= DATE_SUB(NOW(), INTERVAL %s DAY)"
                 params.append(n_days)
-            query += " GROUP BY p.discord_id ORDER BY total_points DESC LIMIT %s"
+            query_ += " GROUP BY p.discord_id ORDER BY total_points DESC LIMIT %s"
             params.append(number_of_top_players)
 
             cursor.execute(query, params)
@@ -169,24 +117,21 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
 
             board = f"**{interaction.guild.name} Top {num_players:,} Leaderboard of {period.title()}**\n\n" + board
             return await interaction.followup.send(content=board, silent=True)
-        finally:
-            cursor.close()
-            conn.close()
 
 
 @bot.tree.command(name="history", description="A general history of your Hangman games!")
 @app_commands.describe(num_games="[Default 5] The last number of games to show a history of")
 async def history(interaction: discord.Interaction, num_games: int = 5):
     await interaction.response.defer(ephemeral=True)
-    player = find_player(interaction.user)
-    if player is None:
+    player = Player(interaction.user)
+
+    df = player.last_n_games(num_games)
+    if len(df) == 0:
         return await interaction.followup.send(
             f"You haven't played a single game yet, {interaction.user.mention}. Try using "
             f"`/hangman` in one of your server's channels!", ephemeral=True)
 
-    df = player.last_n_games(num_games)
     table = tabulate(df, headers="keys", showindex=False, tablefmt="presto")
-
     num_games = len(df)
     wins = sum(val == "Win" for val in df.loc[:, "Result"])
     total_points = df["Points"].sum()
@@ -200,13 +145,13 @@ async def history(interaction: discord.Interaction, num_games: int = 5):
 @bot.tree.command(name="profile", description="See an overview of your Hangman profile!")
 async def profile(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    player = find_player(interaction.user)
+    player = Player(interaction.user)
     if player is None:
         return await interaction.followup.send(content=f"You are not an active Hangman player. You can become one by "
                                                        f"playing your first game with `/hangman`!", ephemeral=True)
 
     content = "\n".join([
-        f"Games played: {len(player.games)}",
+        f"Games played: {player.num_games()}",
         f"Points: {player.points}",
         f"Credits: {player.credits} {options.CREDIT_EMOJI}"
     ])
@@ -220,12 +165,8 @@ async def profile(interaction: discord.Interaction):
 @app_commands.describe(amount=f"[Optional] The number of points you want to exchange for credits")
 async def exchange(interaction: discord.Interaction, amount: int = None):
     await interaction.response.defer(ephemeral=True)
-    player = find_player(interaction.user)
-    if player is None:
-        return await interaction.followup.send(content=f"You are not an active player. Please start a game using "
-                                                       f"`/hangman` to claim your free {options.START_CREDITS:,}"
-                                                       f"{options.CREDIT_EMOJI}", ephemeral=True)
 
+    player = Player(interaction.user)
     player.exchange(amount)
     return await interaction.followup.send(content=f"You exchanged your points for credits!\n\n"
                                                    f"Points: {player.points:,}\n"

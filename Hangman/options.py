@@ -1,6 +1,3 @@
-import os
-import mysql
-from mysql.connector import Error
 from fractions import Fraction
 
 ACTIVE_GAMES_UPDATE: int = 30  # minutes
@@ -42,21 +39,7 @@ LEADERBOARD_PLACES: dict[int, str] = {1: ":first_place:",
                                       9: ":nine:",
                                       10: ":keycap_ten:"}
 VOWEL_COST: int = 100
-CONSONENT_COST: int = 50
+CONSONANT_COST: int = 50
 BUY_CREDITS: dict[int, float] = {1_000: 1.0,
                                  10_000: 5.0,
                                  50_000: 10.0}
-
-
-def get_db_connection():
-    try:
-        return mysql.connector.connect(
-            host=os.environ.get("MYSQLHOST"),
-            user=os.environ.get("MYSQLUSER"),
-            password=os.environ.get("MYSQLPASSWORD"),
-            database=os.environ.get("MYSQLDATABASE"),
-            port=os.environ.get("MYSQLPORT")
-        )
-    except Error as e:
-        print(f"Error connecting to MySQL: {e}")
-        return None

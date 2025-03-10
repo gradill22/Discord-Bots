@@ -1,12 +1,11 @@
 import json
 import math
+import query
 import string
 import discord
 import options
 import pandas as pd
 from random_word import Wordnik
-import mysql
-from mysql.connector import Error
 
 
 class InputLetterGuess(discord.ui.Modal):
@@ -69,7 +68,7 @@ class HangmanButtonView(discord.ui.View):
             content, is_active = self.game.buy_vowel()
             button.disabled = not is_active
             view = None if self.game.is_done else self
-            if self.game.player.credits <= options.CONSONENT_COST:
+            if self.game.player.credits <= options.CONSONANT_COST:
                 self.children[3].disabled = True
             return await interaction.response.edit_message(content=content, view=view)
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
@@ -103,139 +102,73 @@ class Player:
         self._load_or_create_player()
 
     def _load_or_create_player(self):
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("SELECT id, points, credits FROM players WHERE discord_id = %s", (self.discord_id,))
-                result = cursor.fetchone()
-                if result:
-                    self.id, self.points, self.credits = result
-                else:
-                    cursor.execute(
-                        "INSERT INTO players (discord_id, points, credits) VALUES (%s, %s, %s)",
-                        (self.discord_id, 0, options.START_CREDITS)
-                    )
-                    conn.commit()
-                    self.id = cursor.lastrowid
-                    self.points = 0
-                    self.credits = options.START_CREDITS
-            finally:
-                cursor.close()
-                conn.close()
+        result = query.execute(f"SELECT id, points, credits FROM players WHERE discord_id = {self.discord_id}")
+        if result:
+            self.id, self.points, self.credits = result
+            return
+
+        with query.get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO players (discord_id, points, credits) VALUES (%s, %s, %s)",
+                    (self.discord_id, 0, options.START_CREDITS)
+                )
+                conn.commit()
+                self.id = cursor.lastrowid
+                self.points = 0
+                self.credits = options.START_CREDITS
 
     def has_done_wotd(self) -> bool:
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                wotd = json.loads(Wordnik().word_of_the_day())["word"]
-                wotd = self.process_word(wotd)
-                cursor.execute(
-                    "SELECT COUNT(*) FROM games WHERE player_id = %s AND word = %s AND is_wotd = TRUE",
-                    (self.id, wotd)
-                )
-                return cursor.fetchone()[0] > 0
-            finally:
-                cursor.close()
-                conn.close()
-        return False
+        wotd = json.loads(Wordnik().word_of_the_day())["word"]
+        wotd = self.process_word(wotd)
+        result = query.execute(f"SELECT COUNT(*) FROM games WHERE player_id = {self.id} AND word = {wotd} "
+                               f"AND is_wotd = TRUE")
+        return result[0] if result else False
 
     def has_active_game(self) -> bool:
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    "SELECT COUNT(*) FROM games WHERE player_id = %s AND is_done = FALSE",
-                    (self.id,)
-                )
-                return cursor.fetchone()[0] > 0
-            finally:
-                cursor.close()
-                conn.close()
-        return False
+        result = query.execute(f"SELECT COUNT(*) FROM games WHERE player_id = {self.id} AND is_done = FALSE")
+        return result[0] > 0 if result else False
 
     def points(self, days: int = 0) -> float:
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                if days > 0:
-                    cursor.execute(
-                        "SELECT SUM(points) FROM games WHERE player_id = %s AND created_at >= DATE_SUB(NOW(), "
-                        "INTERVAL %s DAY)",
-                        (self.id, days)
-                    )
-                else:
-                    cursor.execute("SELECT points FROM players WHERE id = %s", (self.id,))
-                result = cursor.fetchone()[0]
-                return result if result else 0
-            finally:
-                cursor.close()
-                conn.close()
-        return 0
+        if days > 0:
+            result = query.execute(f"SELECT SUM(points) FROM games WHERE player_id = {self.id} AND created_at >= "
+                                   f"DATE_SUB(NOW(), INTERVAL {days} DAY)")
+        else:
+            result = query.execute(f"SELECT points FROM players WHERE id = {self.id}")
+
+        return result[0] if result else 0
 
     def num_games_since_days(self, days: int) -> int:
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    "SELECT COUNT(*) FROM games WHERE player_id = %s AND created_at >= DATE_SUB(NOW(), "
-                    "INTERVAL %s DAY)",
-                    (self.id, days)
-                )
-                return cursor.fetchone()[0]
-            finally:
-                cursor.close()
-                conn.close()
-        return 0
+        result = query.execute(f"SELECT COUNT(*) FROM games WHERE player_id = {self.id} AND created_at >= "
+                               f"DATE_SUB(NOW(), INTERVAL {days} DAY)")
+        return result[0] if result else 0
+
+    def num_games(self) -> int:
+        result = query.execute(f"SELECT COUNT(*) FROM games WHERE player_id = {self.id}")
+        return result[0] if result else 0
 
     def last_n_games(self, n: int = 5) -> pd.DataFrame:
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    "SELECT word, is_done, lives, points FROM games WHERE player_id = %s ORDER BY created_at DESC "
-                    "LIMIT %s",
-                    (self.id, n)
-                )
-                games = cursor.fetchall()
-                df = pd.DataFrame(columns=["Word", "Result", "Points"])
-                for i, (word, is_done, lives, points) in enumerate(games):
-                    result = "Win" if is_done and lives > 0 else "Loss"
-                    df.loc[i] = (word.title(), result, points)
-                return df
-            finally:
-                cursor.close()
-                conn.close()
+        games = query.execute(f"SELECT word, is_done, lives, points FROM games WHERE player_id = {self.id} "
+                              f"ORDER BY created_at DESC LIMIT {n}", fetch=True, fetch_one=False)
+        if games:
+            df = pd.DataFrame(columns=["Word", "Result", "Points"])
+            for i, (word, is_done, lives, points) in enumerate(games):
+                result = "Win" if is_done and lives > 0 else "Loss"
+                df.loc[i] = (word.title(), result, points)
+            return df
         return pd.DataFrame(columns=["Word", "Result", "Points"])
 
     def exchange(self, amount: int = None) -> None:
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                self._load_or_create_player()
-                if amount is None and self.points > 0:
-                    credits_to_add = math.ceil(self.points * options.POINTS_TO_CREDITS)
-                    cursor.execute(
-                        "UPDATE players SET points = 0, credits = credits + %s WHERE id = %s",
-                        (credits_to_add, self.id)
-                    )
-                elif 0 < amount <= self.points:
-                    credits_to_add = math.ceil(amount * options.POINTS_TO_CREDITS)
-                    cursor.execute(
-                        "UPDATE players SET points = points - %s, credits = credits + %s WHERE id = %s",
-                        (amount, credits_to_add, self.id)
-                    )
-                conn.commit()
-                self._load_or_create_player()
-            finally:
-                cursor.close()
-                conn.close()
+        self._load_or_create_player()
+        if amount is None and self.points > 0:
+            credits_to_add = math.floor(self.points * options.POINTS_TO_CREDITS)
+            query.execute(f"UPDATE players SET points = 0, credits = credits + {credits_to_add} WHERE id = {self.id}",
+                          commit=True, fetch=False)
+        elif 0 < amount <= self.points:
+            credits_to_add = math.floor(amount * options.POINTS_TO_CREDITS)
+            query.execute(f"UPDATE players SET points = points - {amount}, credits = credits + {credits_to_add}"
+                          f" WHERE id = {self.id}", commit=True, fetch=False)
+        self._load_or_create_player()
 
     @staticmethod
     def process_word(word: str) -> str:
@@ -249,94 +182,44 @@ class Hangman:
         self.user = player.user
         self.word, self.definitions, self.is_wotd = self.get_word()
         self.view = HangmanButtonView(self)
+        self.progress = " ".join([options.MISSING_LETTER_EMOJI if letter in string.ascii_uppercase else letter
+                                  for letter in self.word])
         self.lives = lives
         self.points = 0
         self.is_done = False
         self._save_new_game()
 
     def _save_new_game(self):
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    """
-                    INSERT INTO games (player_id, channel_id, word, is_wotd, lives, progress, 
-                    guessed_letters, guessed_words, wrong_letters, definitions)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        self.player.id,
-                        self.channel.id,
-                        self.word,
-                        self.is_wotd,
-                        self.lives,
-                        " ".join([options.MISSING_LETTER_EMOJI if letter in string.ascii_uppercase else letter
-                                  for letter in self.word]),
-                        json.dumps([]),  # empty guessed letters
-                        json.dumps([]),  # empty guessed words
-                        json.dumps([]),  # empty wrong letters
-                        json.dumps(self.definitions)
-                    )
-                )
+        with query.get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("INSERT INTO games (player_id, channel_id, word, is_wotd, lives, progress, "
+                               f"guessed_letters, guessed_words, wrong_letters, definitions) VALUES ({self.player.id}, "
+                               f"{self.channel.id}, {self.word}, {self.is_wotd}, {self.lives}, {self.progress}, "
+                               f"{json.dumps([])}, {json.dumps([])}, {json.dumps([])}, {json.dumps(self.definitions)})")
                 conn.commit()
                 self.id = cursor.lastrowid
-            finally:
-                cursor.close()
-                conn.close()
 
     def _load_game_state(self):
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    """
-                    SELECT word, lives, is_done, progress, guessed_letters, guessed_words, 
-                           wrong_letters, definitions, points, is_wotd
-                    FROM games WHERE id = %s
-                    """,
-                    (self.id,)
-                )
-                result = cursor.fetchone()
-                if result:
-                    (self.word, self.lives, self.is_done, self.progress, guessed_letters,
-                     guessed_words, wrong_letters, definitions, self.points, self.is_wotd) = result
-                    self.guessed_letters = json.loads(guessed_letters)
-                    self.guessed_words = json.loads(guessed_words)
-                    self.wrong_letters = json.loads(wrong_letters)
-                    self.definitions = json.loads(definitions)
-            finally:
-                cursor.close()
-                conn.close()
+        result = query.execute("SELECT word, lives, is_done, progress, guessed_letters, guessed_words, "
+                               "wrong_letters, definitions, points, is_wotd"
+                               f"FROM games WHERE id = {self.id}")
+        if result:
+            (self.word, self.lives, self.is_done, self.progress, guessed_letters,
+             guessed_words, wrong_letters, definitions, self.points, self.is_wotd) = result
+            self.guessed_letters = json.loads(guessed_letters)
+            self.guessed_words = json.loads(guessed_words)
+            self.wrong_letters = json.loads(wrong_letters)
+            self.definitions = json.loads(definitions)
+            return
+
+        print("Failed to load game state...")
 
     def _update_game_state(self):
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    """
-                    UPDATE games 
-                    SET lives = %s, is_done = %s, progress = %s, guessed_letters = %s,
-                        guessed_words = %s, wrong_letters = %s, points = %s
-                    WHERE id = %s
-                    """,
-                    (
-                        self.lives,
-                        self.is_done,
-                        self.progress,
-                        json.dumps(self.guessed_letters),
-                        json.dumps(self.guessed_words),
-                        json.dumps(self.wrong_letters),
-                        self.points,
-                        self.id
-                    )
-                )
-                conn.commit()
-            finally:
-                cursor.close()
-                conn.close()
+        query.execute(f"UPDATE games SET lives = {self.lives}, is_done = {self.is_done}, progress = {self.progress}, "
+                      f"guessed_letters = {json.dumps(self.guessed_letters)}, "
+                      f"guessed_words = {json.dumps(self.guessed_words)}, "
+                      f"wrong_letters = {json.dumps(self.wrong_letters)}, points = {self.points} WHERE id = {self.id}",
+                      fetch=False)
 
     def get_word(self) -> tuple[str, list, bool]:
         wordnik = Wordnik()
@@ -362,18 +245,8 @@ class Hangman:
         if self.vowels_left() == 0:
             return self.current_progress()[0], False
         self.player.credits -= options.VOWEL_COST
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    "UPDATE players SET credits = %s WHERE id = %s",
-                    (self.player.credits, self.player.id)
-                )
-                conn.commit()
-            finally:
-                cursor.close()
-                conn.close()
+        query.execute(f"UPDATE players SET credits = {self.player.credits} WHERE id = {self.player.id}",
+                      fetch=False, commit=True)
 
         temp = "@"
         progress = self.progress.replace(options.MISSING_LETTER_EMOJI, temp)
@@ -393,26 +266,16 @@ class Hangman:
         self._load_game_state()
         if self.consonants_left() == 0:
             return self.current_progress()[0], False
-        self.player.credits -= options.CONSONENT_COST
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    "UPDATE players SET credits = %s WHERE id = %s",
-                    (self.player.credits, self.player.id)
-                )
-                conn.commit()
-            finally:
-                cursor.close()
-                conn.close()
+        self.player.credits -= options.CONSONANT_COST
+        query.execute(f"UPDATE players SET credits = {self.player.credits} WHERE id = {self.player.id}",
+                      fetch=False, commit=True)
 
         temp = "@"
         progress = self.progress.replace(options.MISSING_LETTER_EMOJI, temp)
         for i, letter in enumerate(progress.split()):
             if letter == temp and self.word[i] in options.CONSONANTS:
                 content = self.update_progress(self.word[i], options.POINTS["LETTER"]["CONSONANT"]["CORRECT"])
-                return content, self.consonants_left() > 0 and self.player.credits >= options.CONSONENT_COST
+                return content, self.consonants_left() > 0 and self.player.credits >= options.CONSONANT_COST
         return "Something weird happened here...", False
 
     def format_definitions(self) -> str:
@@ -498,18 +361,8 @@ class Hangman:
         self.points *= options.POINTS["WOTD"] if self.is_wotd else 1
         self.player.points += self.points
 
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    "UPDATE players SET points = points + %s WHERE id = %s",
-                    (self.points, self.player.id)
-                )
-                conn.commit()
-            finally:
-                cursor.close()
-                conn.close()
+        query.execute(f"UPDATE players SET points = points + {self.points} WHERE id = {self.player.id}",
+                      fetch=False, commit=True)
 
         word = self.word.title()
         definitions = self.format_definitions()
@@ -529,18 +382,8 @@ class Hangman:
         self.points *= options.POINTS["WOTD"] if self.is_wotd else 1
         self.player.points += self.points
 
-        conn = options.get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(
-                    "UPDATE players SET points = points + %s WHERE id = %s",
-                    (self.points, self.player.id)
-                )
-                conn.commit()
-            finally:
-                cursor.close()
-                conn.close()
+        query.execute(f"UPDATE players SET points = points + {self.points} WHERE id = {self.player.id}",
+                      fetch=False, commit=True)
 
         word = self.word.title()
         definitions = self.format_definitions()
