@@ -15,20 +15,20 @@ intents.members = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 
 
-def leaderboard_string(players: list[Player], num_players: int = options.DEFAULT_NUM_TOP_PLAYERS,
+def leaderboard_string(players: list[tuple[int, float]], num_players: int = options.DEFAULT_NUM_TOP_PLAYERS,
                        n_days: int = 0) -> tuple[int, str]:
     players = [player for player in players if player.num_games_since_days(n_days) > 0]
-    players = sorted(players, key=lambda p: p.points(n_days), reverse=True)
+    players = sorted(players, key=lambda p: p[1], reverse=True)
     num_players = min(len(players), num_players)
 
     board = ""
     m = math.floor(math.log10(max(len(players), 1))) + 1
-    for i, player in enumerate(players[:num_players]):
+    for i, (discord_id, points) in enumerate(players[:num_players]):
         place = options.LEADERBOARD_PLACES.get(i + 1, f"{i + 1:{m}d}")
-        mention = player.user.mention
-        points = player.points(n_days)
-        points = format(points, f".{'0' if int(points) == float(points) else '1'}f") + " points"
-        board += "* " + " | ".join(map(str, (place, mention, points)))
+        user = bot.get_user(discord_id)
+        mention = user.mention if user else f"Unknown User ({discord_id})"
+        points_str = format(points, f".{'0' if int(points) == float(points) else '1'}f") + " points"
+        board += "* " + " | ".join(map(str, (place, mention, points_str)))
         if i < num_players - 1:
             board += "\n"
 
@@ -37,6 +37,7 @@ def leaderboard_string(players: list[Player], num_players: int = options.DEFAULT
 
 @bot.event
 async def on_ready():
+    await query.initialize_db()
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} command(s)")
@@ -53,7 +54,8 @@ async def hangman(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     player = Player(interaction.user)
 
-    result = query.execute(f"SELECT id, channel_id FROM games WHERE player_id = {player.id} AND is_done = FALSE")
+    result = query.execute("SELECT id, channel_id FROM games WHERE player_id = ? AND is_done = ?",
+                           (player.id, 0), fetch=True)
     if result:
         game_id, active_channel_id = result
         if active_channel_id == interaction.channel.id:
@@ -92,17 +94,17 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
                 FROM players p
                 LEFT JOIN games g ON p.id = g.player_id
                 WHERE p.discord_id IN (
-                    SELECT user_id FROM guild_members WHERE guild_id = %s
+                    SELECT user_id FROM guild_members WHERE guild_id = ?
                 )
             """
             params = [interaction.guild.id]
             if n_days > 0:
-                query_ += " AND g.created_at >= DATE_SUB(NOW(), INTERVAL %s DAY)"
-                params.append(n_days)
-            query_ += " GROUP BY p.discord_id ORDER BY total_points DESC LIMIT %s"
+                query_ += " AND g.created_at >= datetime('now', ?)"
+                params.append(f"-{n_days} days")
+            query_ += " GROUP BY p.discord_id ORDER BY total_points DESC LIMIT ?"
             params.append(number_of_top_players)
 
-            cursor.execute(query, params)
+            cursor.execute(query_, params)
             players_data = cursor.fetchall()
             num_players, board = leaderboard_string(players_data, number_of_top_players)
 
@@ -113,7 +115,7 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
                             f"Minimum number of players: {options.MIN_LEADERBOARD_PLAYERS}\n"
                             f"Number of {interaction.guild.name}'s players {period.lower()}: "
                             f"{num_players}"
-                    )
+                )
 
             board = f"**{interaction.guild.name} Top {num_players:,} Leaderboard of {period.title()}**\n\n" + board
             return await interaction.followup.send(content=board, silent=True)

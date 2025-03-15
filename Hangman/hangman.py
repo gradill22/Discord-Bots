@@ -102,7 +102,8 @@ class Player:
         self._load_or_create_player()
 
     def _load_or_create_player(self):
-        result = query.execute(f"SELECT id, points, credits FROM players WHERE discord_id = {self.discord_id}")
+        result = query.execute("SELECT id, points, credits FROM players WHERE discord_id = ?",
+                               (self.discord_id,), fetch=True)
         if result:
             self.id, self.points, self.credits = result
             return
@@ -110,7 +111,7 @@ class Player:
         with query.get_db_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    "INSERT INTO players (discord_id, points, credits) VALUES (%s, %s, %s)",
+                    "INSERT INTO players (discord_id, points, credits) VALUES (?, ?, ?)",
                     (self.discord_id, 0, options.START_CREDITS)
                 )
                 conn.commit()
@@ -121,35 +122,37 @@ class Player:
     def has_done_wotd(self) -> bool:
         wotd = json.loads(Wordnik().word_of_the_day())["word"]
         wotd = self.process_word(wotd)
-        result = query.execute(f"SELECT COUNT(*) FROM games WHERE player_id = {self.id} AND word = {wotd} "
-                               f"AND is_wotd = TRUE")
+        result = query.execute("SELECT COUNT(*) FROM games WHERE player_id = ? AND word = ? AND is_wotd = 1",
+                               (self.id, wotd), fetch=True)
         return result[0] if result else False
 
     def has_active_game(self) -> bool:
-        result = query.execute(f"SELECT COUNT(*) FROM games WHERE player_id = {self.id} AND is_done = FALSE")
+        result = query.execute("SELECT COUNT(*) FROM games WHERE player_id = ? AND is_done = 0",
+                               (self.id,), fetch=True)
         return result[0] > 0 if result else False
 
     def points(self, days: int = 0) -> float:
         if days > 0:
-            result = query.execute(f"SELECT SUM(points) FROM games WHERE player_id = {self.id} AND created_at >= "
-                                   f"DATE_SUB(NOW(), INTERVAL {days} DAY)")
+            result = query.execute(
+                "SELECT SUM(points) FROM games WHERE player_id = ? AND created_at >= datetime('now', ?)",
+                (self.id, f"-{days} days"), fetch=True)
         else:
-            result = query.execute(f"SELECT points FROM players WHERE id = {self.id}")
-
+            result = query.execute("SELECT points FROM players WHERE id = ?", (self.id,), fetch=True)
         return result[0] if result else 0
 
     def num_games_since_days(self, days: int) -> int:
-        result = query.execute(f"SELECT COUNT(*) FROM games WHERE player_id = {self.id} AND created_at >= "
-                               f"DATE_SUB(NOW(), INTERVAL {days} DAY)")
+        result = query.execute("SELECT COUNT(*) FROM games WHERE player_id = ? AND created_at >= datetime('now', ?)",
+                               (self.id, f"-{days} days"), fetch=True)
         return result[0] if result else 0
 
     def num_games(self) -> int:
-        result = query.execute(f"SELECT COUNT(*) FROM games WHERE player_id = {self.id}")
+        result = query.execute("SELECT COUNT(*) FROM games WHERE player_id = ?", (self.id,), fetch=True)
         return result[0] if result else 0
 
     def last_n_games(self, n: int = 5) -> pd.DataFrame:
-        games = query.execute(f"SELECT word, is_done, lives, points FROM games WHERE player_id = {self.id} "
-                              f"ORDER BY created_at DESC LIMIT {n}", fetch=True, fetch_one=False)
+        games = query.execute(
+            "SELECT word, is_done, lives, points FROM games WHERE player_id = ? ORDER BY created_at DESC LIMIT ?",
+            (self.id, n), fetch=True, fetch_one=False)
         if games:
             df = pd.DataFrame(columns=["Word", "Result", "Points"])
             for i, (word, is_done, lives, points) in enumerate(games):
@@ -162,12 +165,12 @@ class Player:
         self._load_or_create_player()
         if amount is None and self.points > 0:
             credits_to_add = math.floor(self.points * options.POINTS_TO_CREDITS)
-            query.execute(f"UPDATE players SET points = 0, credits = credits + {credits_to_add} WHERE id = {self.id}",
-                          commit=True, fetch=False)
+            query.execute("UPDATE players SET points = 0, credits = credits + ? WHERE id = ?",
+                          (credits_to_add, self.id), commit=True)
         elif 0 < amount <= self.points:
             credits_to_add = math.floor(amount * options.POINTS_TO_CREDITS)
-            query.execute(f"UPDATE players SET points = points - {amount}, credits = credits + {credits_to_add}"
-                          f" WHERE id = {self.id}", commit=True, fetch=False)
+            query.execute("UPDATE players SET points = points - ?, credits = credits + ? WHERE id = ?",
+                          (amount, credits_to_add, self.id), commit=True)
         self._load_or_create_player()
 
     @staticmethod
@@ -192,17 +195,19 @@ class Hangman:
     def _save_new_game(self):
         with query.get_db_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("INSERT INTO games (player_id, channel_id, word, is_wotd, lives, progress, "
-                               f"guessed_letters, guessed_words, wrong_letters, definitions) VALUES ({self.player.id}, "
-                               f"{self.channel.id}, {self.word}, {self.is_wotd}, {self.lives}, {self.progress}, "
-                               f"{json.dumps([])}, {json.dumps([])}, {json.dumps([])}, {json.dumps(self.definitions)})")
+                cursor.execute(
+                    "INSERT INTO games (player_id, channel_id, word, is_wotd, lives, progress, guessed_letters, guessed_words, wrong_letters, definitions) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (self.player.id, self.channel.id, self.word, int(self.is_wotd), self.lives, self.progress,
+                     json.dumps([]), json.dumps([]), json.dumps([]), json.dumps(self.definitions))
+                )
                 conn.commit()
                 self.id = cursor.lastrowid
 
     def _load_game_state(self):
-        result = query.execute("SELECT word, lives, is_done, progress, guessed_letters, guessed_words, "
-                               "wrong_letters, definitions, points, is_wotd"
-                               f"FROM games WHERE id = {self.id}")
+        result = query.execute(
+            "SELECT word, lives, is_done, progress, guessed_letters, guessed_words, wrong_letters, definitions, points, is_wotd "
+            "FROM games WHERE id = ?", (self.id,), fetch=True)
         if result:
             (self.word, self.lives, self.is_done, self.progress, guessed_letters,
              guessed_words, wrong_letters, definitions, self.points, self.is_wotd) = result
@@ -215,11 +220,12 @@ class Hangman:
         print("Failed to load game state...")
 
     def _update_game_state(self):
-        query.execute(f"UPDATE games SET lives = {self.lives}, is_done = {self.is_done}, progress = {self.progress}, "
-                      f"guessed_letters = {json.dumps(self.guessed_letters)}, "
-                      f"guessed_words = {json.dumps(self.guessed_words)}, "
-                      f"wrong_letters = {json.dumps(self.wrong_letters)}, points = {self.points} WHERE id = {self.id}",
-                      fetch=False)
+        query.execute(
+            "UPDATE games SET lives = ?, is_done = ?, progress = ?, guessed_letters = ?, guessed_words = ?, wrong_letters = ?, points = ? WHERE id = ?",
+            (self.lives, int(self.is_done), self.progress, json.dumps(self.guessed_letters),
+             json.dumps(self.guessed_words), json.dumps(self.wrong_letters), self.points, self.id),
+            commit=True
+        )
 
     def get_word(self) -> tuple[str, list, bool]:
         wordnik = Wordnik()
@@ -245,8 +251,7 @@ class Hangman:
         if self.vowels_left() == 0:
             return self.current_progress()[0], False
         self.player.credits -= options.VOWEL_COST
-        query.execute(f"UPDATE players SET credits = {self.player.credits} WHERE id = {self.player.id}",
-                      fetch=False, commit=True)
+        query.execute("UPDATE players SET credits = ? WHERE id = ?", (self.player.credits, self.player.id), commit=True)
 
         temp = "@"
         progress = self.progress.replace(options.MISSING_LETTER_EMOJI, temp)
@@ -267,8 +272,7 @@ class Hangman:
         if self.consonants_left() == 0:
             return self.current_progress()[0], False
         self.player.credits -= options.CONSONANT_COST
-        query.execute(f"UPDATE players SET credits = {self.player.credits} WHERE id = {self.player.id}",
-                      fetch=False, commit=True)
+        query.execute("UPDATE players SET credits = ? WHERE id = ?", (self.player.credits, self.player.id), commit=True)
 
         temp = "@"
         progress = self.progress.replace(options.MISSING_LETTER_EMOJI, temp)
@@ -361,8 +365,7 @@ class Hangman:
         self.points *= options.POINTS["WOTD"] if self.is_wotd else 1
         self.player.points += self.points
 
-        query.execute(f"UPDATE players SET points = points + {self.points} WHERE id = {self.player.id}",
-                      fetch=False, commit=True)
+        query.execute("UPDATE players SET points = points + ? WHERE id = ?", (self.points, self.player.id), commit=True)
 
         word = self.word.title()
         definitions = self.format_definitions()
@@ -382,8 +385,7 @@ class Hangman:
         self.points *= options.POINTS["WOTD"] if self.is_wotd else 1
         self.player.points += self.points
 
-        query.execute(f"UPDATE players SET points = points + {self.points} WHERE id = {self.player.id}",
-                      fetch=False, commit=True)
+        query.execute("UPDATE players SET points = points + ? WHERE id = ?", (self.points, self.player.id), commit=True)
 
         word = self.word.title()
         definitions = self.format_definitions()
