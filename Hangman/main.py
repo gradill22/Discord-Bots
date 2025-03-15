@@ -15,9 +15,7 @@ intents.members = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 
 
-def leaderboard_string(players: list[tuple[int, float]], num_players: int = options.DEFAULT_NUM_TOP_PLAYERS,
-                       n_days: int = 0) -> tuple[int, str]:
-    players = [player for player in players if player.num_games_since_days(n_days) > 0]
+def leaderboard_string(players: list[tuple[int, float]], num_players: int = options.DEFAULT_NUM_TOP_PLAYERS) -> tuple[int, str]:
     players = sorted(players, key=lambda p: p[1], reverse=True)
     num_players = min(len(players), num_players)
 
