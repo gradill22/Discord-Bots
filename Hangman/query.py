@@ -11,7 +11,7 @@ def get_db_connection():
         print("Connecting to SQLite database...")
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row  # Allows fetching rows as dictionaries
-        print("Successfully connected!")
+        print(f"Successfully connected!")
         return conn
     except sqlite3.Error as e:
         print("Error connecting to SQLite:", e, sep="\n")
@@ -36,10 +36,10 @@ async def initialize_db():
                 CREATE TABLE IF NOT EXISTS players (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     discord_id INTEGER UNIQUE,
-                    points REAL DEFAULT 0,
+                    points INTEGER DEFAULT 0,
                     credits INTEGER DEFAULT {options.START_CREDITS}
                 )
-            """)
+            """.strip())
             # Create games table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS games (
@@ -54,12 +54,12 @@ async def initialize_db():
                     guessed_words TEXT,
                     wrong_letters TEXT,
                     definitions TEXT,
-                    points REAL DEFAULT 0,
+                    points INTEGER DEFAULT 0,
                     is_done INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (player_id) REFERENCES players(id)
                 )
-            """)
+            """.strip())
             # Create guild_members table (for leaderboard)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS guild_members (
@@ -67,5 +67,5 @@ async def initialize_db():
                     user_id INTEGER,
                     PRIMARY KEY (guild_id, user_id)
                 )
-            """)
+            """.strip())
             conn.commit()
