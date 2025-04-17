@@ -50,7 +50,7 @@ async def on_ready():
 @bot.tree.command(name="hangman", description="Let's play Hangman!")
 async def hangman(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    player = Player(interaction.user)
+    player = Player(interaction)
 
     result = query.execute("SELECT id, channel_id FROM games WHERE player_id = ? AND is_done = ?",
                            (player.id, 0), fetch=True)
@@ -86,44 +86,44 @@ async def leaderboard(interaction: discord.Interaction, number_of_top_players: i
     n_days = options.LEADERBOARD_PERIODS[period]
 
     with query.get_db_connection() as conn:
-        with conn.cursor() as cursor:
-            query_ = """
-                SELECT p.discord_id, SUM(g.points) as total_points
-                FROM players p
-                LEFT JOIN games g ON p.id = g.player_id
-                WHERE p.discord_id IN (
-                    SELECT user_id FROM guild_members WHERE guild_id = ?
-                )
-            """
-            params = [interaction.guild.id]
-            if n_days > 0:
-                query_ += " AND g.created_at >= datetime('now', ?)"
-                params.append(f"-{n_days} days")
-            query_ += " GROUP BY p.discord_id ORDER BY total_points DESC LIMIT ?"
-            params.append(number_of_top_players)
+        cursor = conn.cursor()
+        query_ = """
+            SELECT p.discord_id, SUM(g.points) as total_points
+            FROM players p
+            LEFT JOIN games g ON p.id = g.player_id
+            WHERE p.id IN (
+                SELECT user_id FROM guild_members WHERE guild_id = ?
+            )
+        """
+        params = [interaction.guild.id]
+        if n_days > 0:
+            query_ += " AND g.created_at >= datetime('now', ?)"
+            params.append(f"-{n_days} days")
+        query_ += " GROUP BY p.discord_id ORDER BY total_points DESC LIMIT ?"
+        params.append(number_of_top_players)
 
-            cursor.execute(query_, params)
-            players_data = cursor.fetchall()
-            num_players, board = leaderboard_string(players_data, number_of_top_players)
+        cursor.execute(query_, params)
+        players_data = cursor.fetchall()
+        num_players, board = leaderboard_string(players_data, number_of_top_players)
 
-            if num_players < options.MIN_LEADERBOARD_PLAYERS:
-                return await interaction.followup.send(
-                    content=f"Sorry {interaction.user.mention}, but there aren't enough "
-                            f"players in {interaction.guild.name} to compile a leaderboard.\n\n"
-                            f"Minimum number of players: {options.MIN_LEADERBOARD_PLAYERS}\n"
-                            f"Number of {interaction.guild.name}'s players {period.lower()}: "
-                            f"{num_players}"
-                )
+        if num_players < options.MIN_LEADERBOARD_PLAYERS:
+            return await interaction.followup.send(
+                content=f"Sorry {interaction.user.mention}, but there aren't enough "
+                        f"players in {interaction.guild.name} to compile a leaderboard.\n\n"
+                        f"Minimum number of players: {options.MIN_LEADERBOARD_PLAYERS}\n"
+                        f"Number of {interaction.guild.name}'s players {period.lower()}: "
+                        f"{num_players}"
+            )
 
-            board = f"**{interaction.guild.name} Top {num_players:,} Leaderboard of {period.title()}**\n\n" + board
-            return await interaction.followup.send(content=board, silent=True)
+        board = f"**{interaction.guild.name} Top {num_players:,} Leaderboard of {period.title()}**\n\n" + board
+        return await interaction.followup.send(content=board, silent=True)
 
 
 @bot.tree.command(name="history", description="A general history of your Hangman games!")
 @app_commands.describe(num_games="[Default 5] The last number of games to show a history of")
 async def history(interaction: discord.Interaction, num_games: int = 5):
     await interaction.response.defer(ephemeral=True)
-    player = Player(interaction.user)
+    player = Player(interaction)
 
     df = player.last_n_games(num_games)
     if len(df) == 0:
@@ -145,13 +145,14 @@ async def history(interaction: discord.Interaction, num_games: int = 5):
 @bot.tree.command(name="profile", description="See an overview of your Hangman profile!")
 async def profile(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-    player = Player(interaction.user)
+    player = Player(interaction)
     if player is None:
         return await interaction.followup.send(content=f"You are not an active Hangman player. You can become one by "
                                                        f"playing your first game with `/hangman`!", ephemeral=True)
 
     content = "\n".join([
         f"Games played: {player.num_games()}",
+        f"Record: {'-'.join(map(str, player.record()))}",
         f"Points: {player.points}",
         f"Credits: {player.credits} {options.CREDIT_EMOJI}"
     ])
@@ -166,7 +167,7 @@ async def profile(interaction: discord.Interaction):
 async def exchange(interaction: discord.Interaction, amount: int = None):
     await interaction.response.defer(ephemeral=True)
 
-    player = Player(interaction.user)
+    player = Player(interaction)
     player.exchange(amount)
     return await interaction.followup.send(content=f"You exchanged your points for credits!\n\n"
                                                    f"Points: {player.points:,}\n"

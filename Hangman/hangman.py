@@ -96,9 +96,10 @@ class HangmanButtonView(discord.ui.View):
 
 
 class Player:
-    def __init__(self, user: discord.User):
-        self.user = user
-        self.discord_id = user.id
+    def __init__(self, interaction: discord.Interaction):
+        self.user = interaction.user
+        self.discord_id = self.user.id
+        self.guild_id = interaction.guild_id
         self._load_or_create_player()
 
     def _load_or_create_player(self):
@@ -109,15 +110,17 @@ class Player:
             return
 
         with query.get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO players (discord_id, points, credits) VALUES (?, ?, ?)",
-                    (self.discord_id, 0, options.START_CREDITS)
-                )
-                conn.commit()
-                self.id = cursor.lastrowid
-                self.points = 0
-                self.credits = options.START_CREDITS
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO players (discord_id, points, credits) VALUES (?, ?, ?)",
+                (self.discord_id, 0, options.START_CREDITS)
+            )
+            self.id = cursor.lastrowid
+            cursor.execute("INSERT INTO guild_members (guild_id, user_id) VALUES (?, ?)",
+                           (self.guild_id, self.id))
+            conn.commit()
+            self.points = 0
+            self.credits = options.START_CREDITS
 
     def has_done_wotd(self) -> bool:
         wotd = json.loads(Wordnik().word_of_the_day())["word"]
@@ -139,6 +142,21 @@ class Player:
         else:
             result = query.execute("SELECT points FROM players WHERE id = ?", (self.id,), fetch=True)
         return result[0] if result else 0
+
+    def record(self, days: int = 0) -> tuple[int, int]:
+        self._load_or_create_player()
+        if days > 0:
+            results = query.execute(
+                "SELECT lives FROM games WHERE player_id = ? AND is_done = 1 AND "
+                "created_at >= datetime('now', ?)",
+                (self.id, days), fetch_one=False
+            )
+        else:
+            results = query.execute("SELECT lives FROM games WHERE player_id = ? AND is_done = 1",
+                                    (self.id,), fetch_one=False)
+        wins = sum(result[0] > 0 for result in results)
+        losses = len(results) - wins
+        return wins, losses
 
     def num_games_since_days(self, days: int) -> int:
         result = query.execute("SELECT COUNT(*) FROM games WHERE player_id = ? AND created_at >= datetime('now', ?)",
@@ -194,20 +212,20 @@ class Hangman:
 
     def _save_new_game(self):
         with query.get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO games (player_id, channel_id, word, is_wotd, lives, progress, guessed_letters, guessed_words, wrong_letters, definitions) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (self.player.id, self.channel.id, self.word, int(self.is_wotd), self.lives, self.progress,
-                     json.dumps([]), json.dumps([]), json.dumps([]), json.dumps(self.definitions))
-                )
-                conn.commit()
-                self.id = cursor.lastrowid
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO games (player_id, channel_id, word, is_wotd, lives, progress, guessed_letters, guessed_words, wrong_letters, definitions) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (self.player.id, self.channel.id, self.word, int(self.is_wotd), self.lives, self.progress,
+                 json.dumps([]), json.dumps([]), json.dumps([]), json.dumps(self.definitions))
+            )
+            conn.commit()
+            self.id = cursor.lastrowid
 
     def _load_game_state(self):
         result = query.execute(
-            "SELECT word, lives, is_done, progress, guessed_letters, guessed_words, wrong_letters, definitions, points, is_wotd "
-            "FROM games WHERE id = ?", (self.id,), fetch=True)
+            "SELECT word, lives, is_done, progress, guessed_letters, guessed_words, wrong_letters, definitions, "
+            "points, is_wotd FROM games WHERE id = ?", (self.id,), fetch=True)
         if result:
             (self.word, self.lives, self.is_done, self.progress, guessed_letters,
              guessed_words, wrong_letters, definitions, self.points, self.is_wotd) = result
@@ -297,8 +315,8 @@ class Hangman:
 
     def quit_game(self) -> None:
         self._load_game_state()
-        self.is_done = True
-        self._update_game_state()
+        query.execute("DELETE FROM games WHERE id = ?", (self.id,), commit=True)
+        del self
 
     def start_game(self):
         self._load_game_state()
@@ -359,16 +377,18 @@ class Hangman:
 
     def win(self, price: int = 0) -> str:
         self._load_game_state()
+        word = self.word.title()
+        definitions = self.format_definitions()
+
         self.is_done = True
         self.points += options.POINTS["WIN"]
         self.points += options.POINTS["LIVES"] * self.lives
         self.points *= options.POINTS["WOTD"] if self.is_wotd else 1
         self.player.points += self.points
 
-        query.execute("UPDATE players SET points = points + ? WHERE id = ?", (self.points, self.player.id), commit=True)
+        query.execute("UPDATE players SET points = points + ? WHERE id = ?",
+                      (self.points, self.player.id), commit=True)
 
-        word = self.word.title()
-        definitions = self.format_definitions()
         is_int = int(self.points) == float(self.points)
         content = (f"🎉 **You Won!** The word{' of the day' if self.is_wotd else ''} was **{word}**!\n\n"
                    f"You got **{self.points:.{'0' if is_int else '1'}f}** points!\n\n{definitions}")
@@ -380,6 +400,10 @@ class Hangman:
 
     def lose(self, price: int = 0):
         self._load_game_state()
+        word = self.word.title()
+        definitions = self.format_definitions()
+
+        self.lives = 0
         self.is_done = True
         self.points += options.POINTS["LOSS"]
         self.points *= options.POINTS["WOTD"] if self.is_wotd else 1
@@ -387,8 +411,6 @@ class Hangman:
 
         query.execute("UPDATE players SET points = points + ? WHERE id = ?", (self.points, self.player.id), commit=True)
 
-        word = self.word.title()
-        definitions = self.format_definitions()
         is_int = int(self.points) == float(self.points)
         content = (f"💀 **Game Over!** The word{' of the day' if self.is_wotd else ''} was **{word}.**\n\n"
                    f"You got **{self.points:.{'0' if is_int else '1'}f}** points.\n\n{definitions}")
