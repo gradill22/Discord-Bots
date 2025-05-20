@@ -49,10 +49,7 @@ def execute(statement: str, params: tuple = (), commit: bool = False, fetch: boo
 
 
 async def initialize_db(include_backup: bool = True):
-    main_conn = get_db_connection()
-    backup_conn = await get_backup_db_connection()
-
-    for conn in (main_conn, backup_conn):
+    with get_db_connection() as conn:
         cursor = conn.cursor()
         # Create players table
         cursor.execute(f"""
@@ -92,9 +89,53 @@ async def initialize_db(include_backup: bool = True):
             )
         """.strip())
         conn.commit()
-        conn.close()
-        if not backup_conn:
-            break
+    if include_backup:
+        await initialize_backup_db()
+
+
+async def initialize_backup_db():
+    backup_conn = await get_backup_db_connection()
+
+    with backup_conn as conn:
+        cursor = conn.cursor()
+        # Create players table
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS players (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                discord_id INTEGER UNIQUE,
+                points INTEGER DEFAULT 0,
+                credits INTEGER DEFAULT {options.START_CREDITS}
+            )
+        """.strip())
+        # Create games table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS games (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                player_id INTEGER,
+                channel_id INTEGER,
+                word TEXT,
+                is_wotd INTEGER,
+                lives INTEGER,
+                progress TEXT,
+                guessed_letters TEXT,
+                guessed_words TEXT,
+                wrong_letters TEXT,
+                definitions TEXT,
+                points INTEGER DEFAULT 0,
+                is_done INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
+                FOREIGN KEY (player_id) REFERENCES players(id)
+            )
+        """.strip())
+        # Create guild_members table (for leaderboard)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS guild_members (
+                guild_id INTEGER,
+                user_id INTEGER,
+                PRIMARY KEY (guild_id, user_id)
+            )
+        """.strip())
+        conn.commit()
 
 
 async def main_to_backup_etl():
