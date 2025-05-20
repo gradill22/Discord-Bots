@@ -1,8 +1,4 @@
 import os
-import time
-
-import pandas.errors
-
 import options
 import sqlite3
 import pandas as pd
@@ -152,9 +148,9 @@ async def main_to_backup_etl():
     main_guild_members = pd.read_sql_table("guild_members", con=main_conn)
 
     # Extract backup
-    backup_players = pd.read_sql_table("players", con=backup_conn)
-    backup_games = pd.read_sql_table("games", con=backup_conn)
-    backup_guild_members = pd.read_sql_table("guild_members", con=backup_conn)
+    backup_players = pd.read_sql("SELECT * FROM players", con=backup_conn)
+    backup_games = pd.read_sql("SELECT * FROM games", con=backup_conn)
+    backup_guild_members = pd.read_sql("SELECT * FROM guild_members", con=backup_conn)
 
     # Transform (merge databases)
     merge_players = pd.merge(main_players, backup_players, on="id", how="outer")
@@ -174,13 +170,13 @@ async def backup_to_main_etl():
 
     try:
         # Extract backup
-        backup_players = pd.read_sql_table("players", con=backup_conn)
-        backup_games = pd.read_sql_table("games", con=backup_conn)
-        backup_guild_members = pd.read_sql_table("guild_members", con=backup_conn)
+        backup_players = pd.read_sql("SELECT * FROM players", con=backup_conn)
+        backup_games = pd.read_sql("SELECT * FROM games", con=backup_conn)
+        backup_guild_members = pd.read_sql("SELECT * FROM guild_members", con=backup_conn)
 
         # Load to main tables
         backup_players.to_sql("players", con=main_conn, if_exists="replace", index=False)
         backup_games.to_sql("games", con=main_conn, if_exists="replace", index=False)
         backup_guild_members.to_sql("guild_members", con=main_conn, if_exists="replace", index=False)
-    except pandas.errors.DatabaseError as e:
+    except pd.errors.DatabaseError as e:
         print("Failed to backup server:", e, sep="\n")
