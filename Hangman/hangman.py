@@ -1,5 +1,4 @@
 import json
-import math
 import query
 import string
 import discord
@@ -17,10 +16,10 @@ class InputLetterGuess(discord.ui.Modal):
         self.add_item(self.user_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        content = self.game.push_guess(self.user_input.value)
+        image, embed = self.game.push_guess(self.user_input.value)
         self.view = self.view if not self.game.is_done else None
-        if content:
-            return await interaction.response.edit_message(content=content, view=self.view)
+        if embed:
+            return await interaction.response.edit_message(attachments=[image], embed=embed, view=self.view)
         return await interaction.response.defer(ephemeral=True)
 
 
@@ -36,10 +35,10 @@ class InputWordGuess(discord.ui.Modal):
         self.add_item(self.user_input)
 
     async def on_submit(self, interaction: discord.Interaction):
-        content = self.game.push_guess(self.user_input.value)
+        image, embed = self.game.push_guess(self.user_input.value)
         self.view = self.view if not self.game.is_done else None
-        if content:
-            return await interaction.response.edit_message(content=content, view=self.view)
+        if embed:
+            return await interaction.response.edit_message(attachments=[image], embed=embed, view=self.view)
         return await interaction.response.defer(ephemeral=True)
 
 
@@ -65,24 +64,26 @@ class HangmanButtonView(discord.ui.View):
     @discord.ui.button(label=f"Buy Vowel", row=2, style=discord.ButtonStyle.green, custom_id="vowel_button")
     async def buy_vowel(self, interaction: discord.Interaction, button: discord.Button):
         if interaction.user == self.game.user:
-            content, is_active = self.game.buy_vowel()
+            image, embed, is_active = self.game.buy_vowel()
             button.disabled = not is_active
             view = None if self.game.is_done else self
-            if self.game.player.credits <= options.CONSONANT_COST:
+            if self.game.player.credits <= options.VOWEL_COST or self.game.vowels_left() == 0:
                 self.children[3].disabled = True
-            return await interaction.response.edit_message(content=content, view=view)
+            if is_active:
+                return await interaction.response.edit_message(attachments=[image], embed=embed, view=view)
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
     @discord.ui.button(label=f"Buy Consonant", row=2, style=discord.ButtonStyle.green, custom_id="consonant_button")
     async def buy_consonant(self, interaction: discord.Interaction, button: discord.Button):
         if interaction.user == self.game.user:
-            content, is_active = self.game.buy_consonant()
+            image, embed, is_active = self.game.buy_consonant()
             button.disabled = not is_active
             view = None if self.game.is_done else self
-            if self.game.player.credits <= options.VOWEL_COST:
+            if self.game.player.credits <= options.CONSONANT_COST:
                 self.children[2].disabled = True
-            return await interaction.response.edit_message(content=content, view=view)
+            if is_active:
+                return await interaction.response.edit_message(attachments=[image], embed=embed, view=view)
         return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                        delete_after=10, ephemeral=True)
 
@@ -92,14 +93,14 @@ class HangmanButtonView(discord.ui.View):
             return await interaction.response.send_message(content=f"Play your own game by using `/hangman`",
                                                            delete_after=10, ephemeral=True)
         self.game.quit_game()
-        return await interaction.response.edit_message(content="You quit.", view=None, delete_after=5)
+        return await interaction.response.edit_message(content="You quit.", attachments=[], embed=None, view=None,
+                                                       delete_after=5)
 
 
 class Player:
     def __init__(self, interaction: discord.Interaction):
         self.user = interaction.user
         self.discord_id = self.user.id
-        self.guild_id = interaction.guild_id
         self._load_or_create_player()
 
     def _load_or_create_player(self):
@@ -111,16 +112,18 @@ class Player:
 
         with query.get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO players (discord_id, points, credits) VALUES (?, ?, ?)",
-                (self.discord_id, 0, options.START_CREDITS)
-            )
-            self.id = cursor.lastrowid
-            cursor.execute("INSERT INTO guild_members (guild_id, user_id) VALUES (?, ?)",
-                           (self.guild_id, self.id))
-            conn.commit()
             self.points = 0
             self.credits = options.START_CREDITS
+            cursor.execute(
+                "INSERT INTO players (discord_id, points, credits) VALUES (?, ?, ?)",
+                (self.discord_id, self.points, self.credits)
+            )
+            self.id = cursor.lastrowid
+            mutual_guilds = self.user.mutual_guilds
+            for guild in mutual_guilds:
+                cursor.execute("INSERT INTO guild_members (guild_id, user_id) VALUES (?, ?)",
+                               (guild.id, self.id))
+            conn.commit()
 
     def has_done_wotd(self) -> bool:
         wotd = json.loads(Wordnik().word_of_the_day())["word"]
@@ -179,45 +182,44 @@ class Player:
             return df
         return pd.DataFrame(columns=["Word", "Result", "Points"])
 
-    def exchange(self, amount: int = None) -> None:
-        self._load_or_create_player()
-        if amount is None and self.points > 0:
-            credits_to_add = math.floor(self.points * options.POINTS_TO_CREDITS)
-            query.execute("UPDATE players SET points = 0, credits = credits + ? WHERE id = ?",
-                          (credits_to_add, self.id), commit=True)
-        elif 0 < amount <= self.points:
-            credits_to_add = math.floor(amount * options.POINTS_TO_CREDITS)
-            query.execute("UPDATE players SET points = points - ?, credits = credits + ? WHERE id = ?",
-                          (amount, credits_to_add, self.id), commit=True)
-        self._load_or_create_player()
-
     @staticmethod
     def process_word(word: str) -> str:
         return str(word).strip().upper()
 
 
 class Hangman:
-    def __init__(self, player: Player, channel: discord.TextChannel, lives: int = options.NUM_LIVES):
+    def __init__(self, player: Player, channel: discord.TextChannel, id_: int = None):
         self.player = player
         self.channel = channel
         self.user = player.user
-        self.word, self.definitions, self.is_wotd = self.get_word()
+
+        if id_:
+            self.id = id_
+            self._load_game_state()
+        else:
+            self.word, self.definitions, self.is_wotd = self.get_word()
+            self.progress = " ".join([options.MISSING_LETTER_EMOJI if letter in string.ascii_uppercase
+                                      else "\n" if letter == " " else letter for letter in self.word])
+            self.lives = options.NUM_LIVES
+            self.points = 0
+            self.is_done = False
+            self._save_new_game()
+
         self.view = HangmanButtonView(self)
-        self.progress = " ".join([options.MISSING_LETTER_EMOJI if letter in string.ascii_uppercase else letter
-                                  for letter in self.word])
-        self.lives = lives
-        self.points = 0
-        self.is_done = False
-        self._save_new_game()
 
     def _save_new_game(self):
+        self.guessed_letters = []
+        self.guessed_words = []
+        self.wrong_letters = []
+
         with query.get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO games (player_id, channel_id, word, is_wotd, lives, progress, guessed_letters, guessed_words, wrong_letters, definitions) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (self.player.id, self.channel.id, self.word, int(self.is_wotd), self.lives, self.progress,
-                 json.dumps([]), json.dumps([]), json.dumps([]), json.dumps(self.definitions))
+                 json.dumps(self.guessed_letters), json.dumps(self.guessed_words), json.dumps(self.wrong_letters),
+                 json.dumps(self.definitions))
             )
             conn.commit()
             self.id = cursor.lastrowid
@@ -257,17 +259,16 @@ class Hangman:
         return word, list(), do_wotd
 
     def vowels_left(self) -> int:
-        self._load_game_state()
         num_vowels = sum(vowel in self.word for vowel in options.VOWELS)
         if num_vowels == 0:
             return "Y" not in self.progress
         num_vowels -= sum(letter in options.VOWELS for letter in self.guessed_letters)
         return num_vowels
 
-    def buy_vowel(self) -> tuple[str, bool]:
-        self._load_game_state()
+    def buy_vowel(self) -> tuple[discord.File | None, discord.Embed | None, bool]:
         if self.vowels_left() == 0:
-            return self.current_progress()[0], False
+            image, embed, view = self.current_progress()
+            return image, embed, False
         self.player.credits -= options.VOWEL_COST
         query.execute("UPDATE players SET credits = ? WHERE id = ?", (self.player.credits, self.player.id), commit=True)
 
@@ -275,20 +276,19 @@ class Hangman:
         progress = self.progress.replace(options.MISSING_LETTER_EMOJI, temp)
         for i, letter in enumerate(progress.split()):
             if letter == temp and self.word[i] in options.VOWELS:
-                content = self.update_progress(self.word[i], options.POINTS["LETTER"]["VOWEL"]["CORRECT"])
-                return content, self.vowels_left() > 0 and self.player.credits >= options.VOWEL_COST
-        return "Something weird happened here...", False
+                image, embed = self.update_progress(self.word[i], options.POINTS["LETTER"]["VOWEL"]["CORRECT"])
+                return image, embed, self.vowels_left() > 0 and self.player.credits >= options.VOWEL_COST
+        return None, None, False
 
     def consonants_left(self) -> int:
-        self._load_game_state()
         num_consonants = sum(c in options.CONSONANTS for c in set(self.word) if c not in self.progress)
         num_vowels = self.vowels_left()
         return num_consonants - int(num_vowels == 0)
 
-    def buy_consonant(self) -> tuple[str, bool]:
-        self._load_game_state()
+    def buy_consonant(self) -> tuple[discord.File | None, discord.Embed | None, bool]:
         if self.consonants_left() == 0:
-            return self.current_progress()[0], False
+            image, embed, view = self.current_progress()
+            return image, embed, False
         self.player.credits -= options.CONSONANT_COST
         query.execute("UPDATE players SET credits = ? WHERE id = ?", (self.player.credits, self.player.id), commit=True)
 
@@ -296,13 +296,11 @@ class Hangman:
         progress = self.progress.replace(options.MISSING_LETTER_EMOJI, temp)
         for i, letter in enumerate(progress.split()):
             if letter == temp and self.word[i] in options.CONSONANTS:
-                content = self.update_progress(self.word[i], options.POINTS["LETTER"]["CONSONANT"]["CORRECT"])
-                return content, self.consonants_left() > 0 and self.player.credits >= options.CONSONANT_COST
-        return "Something weird happened here...", False
+                image, embed = self.update_progress(self.word[i], options.POINTS["LETTER"]["CONSONANT"]["CORRECT"])
+                return image, embed, self.consonants_left() > 0 and self.player.credits >= options.CONSONANT_COST
+        return None, None, False
 
     def format_definitions(self) -> str:
-        self._load_game_state()
-
         def format_definition(definition: dict) -> str:
             return f"*{definition['partOfSpeech']}.* {definition['text']}"
 
@@ -314,25 +312,24 @@ class Hangman:
             [f"Definitions:"] + [f"{i + 1}) {format_definition(d)}" for i, d in enumerate(self.definitions)])
 
     def quit_game(self) -> None:
-        self._load_game_state()
+        # remove points from player profile
+        query.execute("UPDATE players SET points = points - ? WHERE id = ?", params=(self.points, self.player.id),
+                      commit=True)
         query.execute("DELETE FROM games WHERE id = ?", (self.id,), commit=True)
         del self
 
-    def start_game(self):
-        self._load_game_state()
-        title = "**H_NGM_N**\n__WORD OF THE DAY__" if self.is_wotd else "**H_NGM_N**"
-        content = "\n".join([
-            title + "\n",
-            self.progress + "\n",
-            " ".join([options.LIVES_EMOJI] * self.lives),
-            "\nGuess a letter by replying to this message!"
-        ])
-        return content, self.view
+    def start_game(self) -> tuple[discord.File, discord.Embed, discord.ui.View]:
+        title = "H_NGM_N\n__WORD OF THE DAY__" if self.is_wotd else "H_NGM_N"
+        content = f"{self.progress}\n\n{' '.join([options.LIVES_EMOJI] * self.lives)}"
+        image = discord.File(fp=f"assets/hangman_{self.lives}.jpg", filename="image.jpg")
+        embed = discord.Embed(title=title, description=content.strip(),
+                              color=discord.Color.from_rgb(*options.LIVES_LEFT[self.lives]))
+        embed.set_image(url="attachment://image.jpg")
+        return image, embed, self.view
 
-    def update_progress(self, guess: str, price: int = 0) -> str:
-        self._load_game_state()
+    def update_progress(self, guess: str, price: int = 0) -> tuple[discord.File, discord.Embed]:
         if len(guess) == 1:
-            is_vowel = guess in options.VOWELS if sum(self.word.count(v) for v in options.VOWELS) > 0 else guess == "Y"
+            is_vowel = guess in options.VOWELS if sum(self.word.count(v) for v in options.VOWELS) else guess == "Y"
             self.guessed_letters.append(guess)
             if guess not in self.word:
                 self.wrong_letters.append(guess)
@@ -344,9 +341,10 @@ class Hangman:
             elif price == 0:
                 self.points += options.POINTS["LETTER"]["VOWEL" if is_vowel else "CONSONANT"][
                                    "CORRECT"] * self.word.count(guess)
-            self.progress = " ".join([letter if letter in self.guessed_letters or letter not in string.ascii_uppercase
-                                      else options.MISSING_LETTER_EMOJI for letter in self.word])
-            if not self.progress.count(options.MISSING_LETTER_EMOJI):
+            self.progress = " ".join(["\n" if letter == " " else options.MISSING_LETTER_EMOJI
+                                      if letter not in self.guessed_letters and letter in string.ascii_uppercase
+                                      else letter for letter in self.word])
+            if self.progress.count(options.MISSING_LETTER_EMOJI) == 0:
                 return self.win(price)
         else:
             self.guessed_words.append(guess)
@@ -359,7 +357,6 @@ class Hangman:
                 return self.lose(price)
 
         content = [
-            "**H_NGM_N**\n__WORD OF THE DAY__" if self.is_wotd else "**H_NGM_N**" + "\n",
             self.progress + "\n",
             " ".join([options.LIVES_EMOJI] * self.lives),
             f"Used letters: {', '.join(sorted(self.wrong_letters))}",
@@ -372,11 +369,16 @@ class Hangman:
         if price > 0:
             content.append(f"You have {self.player.credits} {options.CREDIT_EMOJI} remaining!")
 
-        self._update_game_state()
-        return "\n".join(content)
+        embed = discord.Embed(title="H_NGM_N\n__WORD OF THE DAY__" if self.is_wotd else "H_NGM_N",
+                              description="\n".join(content),
+                              color=discord.Color.from_rgb(*options.LIVES_LEFT[self.lives]))
+        image = discord.File(fp=f"assets/hangman_{self.lives}.jpg", filename="image.jpg")
+        embed.set_image(url="attachment://image.jpg")
 
-    def win(self, price: int = 0) -> str:
-        self._load_game_state()
+        self._update_game_state()
+        return image, embed
+
+    def win(self, price: int = 0) -> tuple[discord.File, discord.Embed]:
         word = self.word.title()
         definitions = self.format_definitions()
 
@@ -395,11 +397,14 @@ class Hangman:
         if price > 0:
             content += f"\n\nYou have {self.player.credits} {options.CREDIT_EMOJI} remaining!"
 
-        self._update_game_state()
-        return content.strip()
+        image = discord.File(fp=f"assets/hangman_{self.lives}_win.jpg", filename="win.jpg")
+        embed = discord.Embed(title="💀 Game Over!", description=content.strip(), color=discord.Color.green())
+        embed.set_image(url="attachment://win.jpg")
 
-    def lose(self, price: int = 0):
-        self._load_game_state()
+        self._update_game_state()
+        return image, embed
+
+    def lose(self, price: int = 0) -> tuple[discord.File, discord.Embed]:
         word = self.word.title()
         definitions = self.format_definitions()
 
@@ -412,16 +417,19 @@ class Hangman:
         query.execute("UPDATE players SET points = points + ? WHERE id = ?", (self.points, self.player.id), commit=True)
 
         is_int = int(self.points) == float(self.points)
-        content = (f"💀 **Game Over!** The word{' of the day' if self.is_wotd else ''} was **{word}.**\n\n"
+        content = (f"The word{' of the day' if self.is_wotd else ''} was **{word}.**\n\n"
                    f"You got **{self.points:.{'0' if is_int else '1'}f}** points.\n\n{definitions}")
         if price > 0:
             content += f"\n\nYou have {self.player.credits} {options.CREDIT_EMOJI} remaining."
 
+        image = discord.File(fp="assets/hangman_0.jpg", filename="lose.jpg")
+        embed = discord.Embed(title="💀 Game Over!", description=content.strip(), color=discord.Color.red())
+        embed.set_image(url="attachment://lose.jpg")
+
         self._update_game_state()
-        return content.strip()
+        return image, embed
 
     def push_guess(self, guess: str):
-        self._load_game_state()
         guess = self.player.process_word(guess)
         if len(guess) == 1 and guess in self.guessed_letters:
             return
@@ -429,15 +437,15 @@ class Hangman:
             return
         return self.update_progress(guess)
 
-    def current_progress(self) -> tuple[str, discord.ui.View] | tuple[str, None]:
-        self._load_game_state()
+    def current_progress(self) -> tuple[discord.File, discord.Embed, discord.ui.View | None]:
         if self.is_win():
-            return self.win(self.points), None
+            image, embed = self.win(self.points)
+            return image, embed, None
         if self.lives == 0:
-            return self.lose(self.points), None
+            image, embed = self.win(self.points)
+            return image, embed, None
 
         content = [
-            "**H_NGM_N**\n__WORD OF THE DAY__" if self.is_wotd else "**H_NGM_N**" + "\n",
             self.progress + "\n",
             " ".join([options.LIVES_EMOJI] * self.lives),
             f"Used letters: {', '.join(sorted(self.wrong_letters))}",
@@ -448,14 +456,19 @@ class Hangman:
         if len(self.guessed_words) == 0:
             content.pop(-1)
 
-        return "\n".join(content), self.view
+        embed = discord.Embed(title="H_NGM_N\n__WORD OF THE DAY__" if self.is_wotd else "H_NGM_N",
+                              description="\n".join(content),
+                              color=discord.Color.from_rgb(*options.LIVES_LEFT[self.lives]))
+        image = discord.File(fp=f"assets/hangman_{self.lives}{'_win' if self.is_win() else ''}.jpg",
+                             filename="image.jpg")
+        embed.set_image(url="attachment://image.jpg")
+
+        return image, embed, self.view
 
     def is_win(self):
-        self._load_game_state()
         return self.is_done and self.lives > 0
 
     def __str__(self):
-        self._load_game_state()
         return "\n".join([
             f"Player: {self.user.name}",
             f"Server: {self.channel.guild.name}",
