@@ -1,17 +1,13 @@
 import pytz
-import datetime
-from fractions import Fraction
 
 
 PREFIX: str = "/"
-ACTIVE_GAMES_UPDATE: int = 30  # minutes
 NUM_LIVES: int = 5
 NUM_GAMES_HISTORY: int = 5
 LIVES_EMOJI: str = ":heart:"
 MISSING_LETTER_EMOJI: str = ":x:"
 CREDIT_EMOJI: str = ":coin:"
 START_CREDITS: int = 500
-POINTS_TO_CREDITS: Fraction = Fraction(1.0)
 POINTS: dict = {
     "LETTER": {"VOWEL": {"CORRECT": 5,
                          "INCORRECT": -5},

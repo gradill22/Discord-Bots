@@ -105,9 +105,9 @@ class Player:
 
     def _load_or_create_player(self):
         result = query.execute("SELECT id, points, credits FROM players WHERE discord_id = ?",
-                               (self.discord_id,), fetch=True)
+                               (self.discord_id,), fetch=True, fetch_one=False)
         if result:
-            self.id, self.points, self.credits = result
+            self.id, self.points, self.credits = map(int, result)
             return
 
         with query.get_db_connection() as conn:
@@ -137,7 +137,7 @@ class Player:
                                (self.id,), fetch=True)
         return result[0] > 0 if result else False
 
-    def points(self, days: int = 0) -> float:
+    def points(self, days: int = 0) -> int:
         if days > 0:
             result = query.execute(
                 "SELECT SUM(points) FROM games WHERE player_id = ? AND created_at >= datetime('now', ?)",
