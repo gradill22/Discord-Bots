@@ -1,4 +1,8 @@
 import os
+import time
+
+import pandas.errors
+
 import options
 import sqlite3
 import pandas as pd
@@ -168,12 +172,15 @@ async def backup_to_main_etl():
     main_conn = get_db_connection()
     backup_conn = await get_backup_db_connection()
 
-    # Extract backup
-    backup_players = pd.read_sql_table("players", con=backup_conn)
-    backup_games = pd.read_sql_table("games", con=backup_conn)
-    backup_guild_members = pd.read_sql_table("guild_members", con=backup_conn)
+    try:
+        # Extract backup
+        backup_players = pd.read_sql_table("players", con=backup_conn)
+        backup_games = pd.read_sql_table("games", con=backup_conn)
+        backup_guild_members = pd.read_sql_table("guild_members", con=backup_conn)
 
-    # Load to main tables
-    backup_players.to_sql("players", con=main_conn, if_exists="replace", index=False)
-    backup_games.to_sql("games", con=main_conn, if_exists="replace", index=False)
-    backup_guild_members.to_sql("guild_members", con=main_conn, if_exists="replace", index=False)
+        # Load to main tables
+        backup_players.to_sql("players", con=main_conn, if_exists="replace", index=False)
+        backup_games.to_sql("games", con=main_conn, if_exists="replace", index=False)
+        backup_guild_members.to_sql("guild_members", con=main_conn, if_exists="replace", index=False)
+    except pandas.errors.DatabaseError as e:
+        print("Failed to backup server:", e, sep="\n")
