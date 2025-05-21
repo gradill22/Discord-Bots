@@ -1,4 +1,6 @@
 import json
+import sqlite3
+
 import query
 import string
 import discord
@@ -105,7 +107,7 @@ class Player:
 
     def _load_or_create_player(self):
         result = query.execute("SELECT id, points, credits FROM players WHERE discord_id = ?",
-                               (self.discord_id,), fetch=True, fetch_one=False)
+                               (self.discord_id,), fetch=True)
         if result:
             self.id, self.points, self.credits = map(int, result)
             return
